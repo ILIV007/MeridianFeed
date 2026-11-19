@@ -53,3 +53,21 @@ Every run also carries **controls**: a positive control config that must pass Ga
 Configs are re-verified every hour, and the exact post batch is re-verified right before posting — nothing older than 60 minutes is posted. **One** failed re-check = quarantined (not published); **2 consecutive failures** = removed from the pool. VIP drops out on the first failure. Nothing is kept on age alone.
 
 **Never lower the bar to fill a post:** a thin hour posts fewer configs, an empty hour posts only the Phase-4 anchors or nothing. Quality over quantity, always.
+
+### As implemented — `pipeline/verifier.py` (2026-11-20)
+
+- **Input:** the verifier reuses `collector.py` (fetch / Gate-1 parse / cross-source dedup) and pairs each record with its raw URI **in memory only**. Round-robin sampling across sources (`--limit`, default 200) keeps one source from filling the sample.
+- **Gate 2:** DNS resolution + TCP connect per server:port, 32 concurrent workers, 5 s timeout. UDP-only protocols (Hysteria2, TUIC) pass on DNS alone — they have no TCP handshake to test.
+- **Gate 3:** one sing-box process per config (4 concurrent): a minimal client is generated from the URI (VLESS incl. REALITY/ws/grpc, VMess, Trojan, Shadowsocks, Hysteria2, TUIC), exposed as a local mixed inbound, then probed through the tunnel — 3× generate_204 (median latency; any failure = fail), a Cloudflare trace fetch (egress IP must differ from the host's direct egress; country recorded), and a 256 KB speed sample from the Cloudflare speed endpoint.
+- **Controls, every run, before any candidate:** positive = a local loopback sing-box server+client pair plus a local probe origin (proves the harness end-to-end: 204, trace with a differing egress, speed); negative = a VLESS config pointing at a dead TEST-NET address. If the positive fails or the negative passes, the run reports **CONTROLS FAILED** and verifies nothing.
+- **Output:** one stats JSON (per-gate counts and fail reasons, latency/speed distributions, egress-country counts, control results). No config, credential, server or egress IP is ever written out. A single run assigns **no tier** — public needs a second passing run ≥15 min later, VIP needs 3 consecutive passing cycles; that bookkeeping is the publisher's state (Phase 5), fed by these per-run stats.
+- **Rebranding (display-only):** `format_remark(country, protocol, latency_ms)` builds the publish-time name `PROXIV3 · <flag> <CC> · <PROTOCOL> · <latency>ms`, and `rebrand_uri(uri, remark)` rewrites only the display name (the URI `#fragment`, or `ps` inside a vmess payload) — connection fields are untouched, so a rebranded config keeps the same collector record and dedup key (covered by `pipeline/test_verifier.py`, 5 tests).
+- **Workflow:** `.github/workflows/verify.yml` runs it hourly (and on demand) with a pinned, checksum-verified sing-box, and uploads the stats JSON as an artifact. It publishes nothing.
+
+Run it locally:
+
+```
+python3 pipeline/verifier.py pipeline/sources.json --sing-box /path/to/sing-box --limit 40 --out verify-stats.json
+```
+
+First proof run (2026-11-20, build sandbox, sample of 40): collector 2,581 fetched → 2,554 Gate-1 valid → 1,821 unique → 40 sampled; Gate 2 passed 40/40 (this sandbox's transparent gateway accepts TCP broadly, so Gate-2 rates here are inflated); **controls OK** (positive loopback pair passed, negative correctly failed); Gate 3 candidates 0/40 — **an environment artifact, not a config verdict**: the sandbox blocks direct TLS egress from the host (verified independently of sing-box), which candidate tunnels require, so real Gate-3 pass rates are measured on GitHub Actions runners with normal egress. Builder correctness was verified separately: 60/60 sampled outbounds pass `sing-box check`.
