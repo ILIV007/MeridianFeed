@@ -35,6 +35,7 @@ Scope locked by wolf (2026-11-20):
 ## Phase 2 — Collector + parser + dedup
 - Protocols in scope: VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC.
 - Strict parse + normalise; dedup key = protocol + server + port + credential hash (same server under 50 remarks = 1 entry).
+- DONE 2026-11-20: built `pipeline/collector.py` + `pipeline/sources.json` (7 keep sources from Phases 1/1b) + `pipeline/test_collector.py` (18 tests, all passing). First live run: 7/7 sources fetched, 2,581 candidates → 2,554 parse-valid, 27 Gate-1 rejects, 733 duplicates → 1,821 unique configs / 1,681 hosts. Raw configs are never stored or committed — stats output only.
 
 ## Phase 3 — Verifier (the core — config checkup)
 Three gates; a config must pass ALL of them:
