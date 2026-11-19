@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-20 — Phase 1 source checkup complete
+
+- Phase 1 source checkup complete: 11 sources sampled (report: docs/phase1-source-checkup.md). Keep: ermaozi, NoMoreWalls, mahdibland Eternity; 4 on watch, 4 dropped. Cross-source dedup is mandatory — several top sources are largely the same underlying pool.
+- Deployment rule recorded: no GitHub–Cloudflare connection (no CF GitHub App / Workers Builds); Workers deploy via Cloudflare API token only, like Lyra, and the Actions pipeline reaches Cloudflare only via its API.
+
+Agent: Rick
+
 ## 2026-11-20 — Rename to MeridianFeed
 
 - Repository renamed Pool-v2ray → MeridianFeed (codename, per the naming & risk rules in docs/PLAN.md); README and plan synced.
