@@ -126,14 +126,15 @@ def collect_candidates(registry_path, limit):
 # dedup key and parses to the identical record.
 
 def format_remark(country_code, protocol):
-    """'PROXIV3 · <flag> <CC> · <PROTOCOL>' — no latency figure in the
-    config name (wolf's rule, 2026-11-20)."""
+    """'🪼 PROXIV3 · <flag> <CC> · <PROTOCOL> · Verified' — the channel's
+    own 🪼 emoji up front and the word Verified instead of any latency
+    figure in the config name (wolf's final rule, 2026-11-20)."""
     cc = (country_code or "").strip().upper()
     if len(cc) == 2 and cc.isalpha():
         flag = "".join(chr(0x1F1E6 + ord(ch) - 65) for ch in cc)
     else:
         flag, cc = "\U0001F310", cc or "??"
-    return "PROXIV3 · %s %s · %s" % (
+    return "\U0001FABC PROXIV3 · %s %s · %s · Verified" % (
         flag, cc, (protocol or "").strip().upper())
 
 
