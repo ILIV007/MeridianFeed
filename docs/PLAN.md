@@ -7,6 +7,12 @@ Scope locked by wolf (2026-11-20):
 - ONE single VIP subscription link (secret path, given only via the new bot). No per-user tokens, no mass production.
 - Hard rule: only configs proven working end-to-end are published. No filler.
 
+## Naming & risk rules (wolf, 2026-11-20 — the new CF account must NOT hit the problems the old proxy accounts hit)
+- Repo renamed to the codename `MeridianFeed` (ILIV007/MeridianFeed) on 2026-11-20 at wolf's instruction; `Pool-v2ray` is retired.
+- On the Cloudflare side, NO sensitive words in ANY identifier: account name, workers.dev subdomain, Worker names, KV/D1 names, routes, secret names. Banned words: proxy, v2ray, vpn, tunnel, bypass, free, pool, proxiv3, iran, filter and similar.
+- CF codenames: publisher Worker `meridian-pub`, sub Worker `meridian-sub`, anchor Worker (Phase 4) under a separate bland name, KV `MERIDIAN_STORE`. Branding (PROXIV3 etc.) lives only in Telegram post text, never in infrastructure names.
+- Risk posture: the CF account only serves light content (hourly post cron + static sub reads). No mass scraping from CF, no open relay; the sub path stays secret; the Phase-4 anchor stays low-volume. Heavy work (collecting/verifying) stays on GitHub Actions.
+
 ## Phase 0 — Decisions & access (needs wolf)
 - Repo created 2026-11-20: ILIV007/Pool-v2ray (public, empty at creation; scaffold in progress).
 - Wolf is creating the new Cloudflare account himself (2026-11-20) and will hand it over together with the new Telegram bot token; Rick advances all phases that do not need them in the meantime.
@@ -54,5 +60,5 @@ Known limit: runners are outside Iran — a pass proves the config truly works, 
 - Import tests: v2rayNG, Happ, Streisand — public post configs + VIP sub, on real connections.
 - Full checkup/debug pass, then ship as v1.0.0 via branch + PR + merge, tagged `Agent: Rick`, changelog in repo.
 
-Decided (corrected by wolf on 2026-11-20, superseding the earlier `Pool-v2` reading): repo name = `Pool-v2ray` (ILIV007/Pool-v2ray — checked 2026-11-20, name is free). Nothing was created under the old name.
+Decided (corrected by wolf on 2026-11-20, superseding the earlier `Pool-v2` reading): repo name was `Pool-v2ray`; renamed the same night to the codename `MeridianFeed` under wolf's naming/risk rule (see Naming & risk rules above). Nothing was created under the old name.
 Open items for wolf: new CF account hand-off, new bot token (via Secure Vault), who counts as VIP.
