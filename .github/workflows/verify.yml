@@ -55,6 +55,19 @@ jobs:
             --limit "${{ github.event.inputs.limit || '200' }}" \
             --out verify-stats.json
 
+      - name: Publish stats to step summary
+        if: always()
+        run: |
+          if [ -f verify-stats.json ]; then
+            {
+              echo '## Verifier stats'
+              echo ''
+              echo '```json'
+              cat verify-stats.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload stats artifact
         if: always()
         uses: actions/upload-artifact@v4
