@@ -1,0 +1,65 @@
+name: verify
+
+# Phase 3 verifier — collects the registry, applies Gate 2 + Gate 3
+# (sing-box tunnel tests with controls) and uploads a stats-only JSON
+# artifact. It publishes NOTHING: publishing is Phase 5, and tier
+# assignment needs the strict repeat passes across separate runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Max configs to Gate-3 test this run"
+        required: false
+        default: "200"
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned sing-box
+        env:
+          SING_BOX_VERSION: "1.11.15"
+          SING_BOX_SHA256: "950af37eb2d7e55dddae34a18411cd617303fd99d2dc75bc76b6dd9fcd97d9c5"
+        run: |
+          curl -sL -o /tmp/sing-box.tar.gz \
+            "https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz"
+          echo "${SING_BOX_SHA256}  /tmp/sing-box.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/sing-box.tar.gz -C /tmp
+          sudo install -m 0755 "/tmp/sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box" /usr/local/bin/sing-box
+          sing-box version
+
+      - name: Collector + verifier unit sanity
+        run: python3 -m unittest pipeline.test_collector pipeline.test_verifier
+
+      - name: Run verifier (Gate 2 + Gate 3 with controls)
+        run: |
+          python3 pipeline/verifier.py pipeline/sources.json \
+            --sing-box "$(command -v sing-box)" \
+            --limit "${{ github.event.inputs.limit || '200' }}" \
+            --out verify-stats.json
+
+      - name: Upload stats artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-stats-${{ github.run_id }}
+          path: verify-stats.json
+          if-no-files-found: warn
+          retention-days: 30
