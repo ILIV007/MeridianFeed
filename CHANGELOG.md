@@ -1,3 +1,10 @@
+## 2026-11-20 — First real GitHub Actions verify run (Phase 3)
+
+- Workflow `verify` run 44623695513 completed with conclusion **success**; stats artifact `verify-stats-44623695513`. Run numbers: input fetched 2,581 → Gate 1 valid 2,554 → 1,821 unique → sampled 200. Controls ok (positive pass, negative correctly failed). Gate 2: 173/200 passed. Gate 3: 106/173 passed (ss 52, vless 38, vmess 10, hysteria2 4, trojan 2); latency median 359.7 ms / p90 811.9 ms; speed median 2.42 Mbps / p90 7.66 Mbps; 93 met the single-run public criteria. Nothing published — strict tier assignment still requires the repeat passes.
+- Workflow now also appends the stats JSON to the step summary, so future run numbers are readable via the API without downloading the artifact zip.
+
+Agent: Rick
+
 # Changelog
 
 ## 2026-11-20 — Final remark format
