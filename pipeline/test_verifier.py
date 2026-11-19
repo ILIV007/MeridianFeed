@@ -52,8 +52,10 @@ class FormatRemarkTests(unittest.TestCase):
         self.assertIn("\U0001F1E9\U0001F1EA DE", remark)
         self.assertIn("VLESS", remark)
         self.assertNotIn("ms", remark)
-        # No digits anywhere: no latency value may leak into the name.
-        self.assertFalse(any(ch.isdigit() for ch in remark))
+        # No latency digits may leak into the name (the "3" in PROXIV3
+        # is part of the brand, not a measurement).
+        self.assertFalse(any(ch.isdigit()
+                             for ch in remark.replace("PROXIV3", "")))
 
     def test_unknown_country(self):
         remark = verifier.format_remark(None, "ss")
