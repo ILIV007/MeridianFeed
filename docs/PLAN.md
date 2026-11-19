@@ -32,10 +32,11 @@ Scope locked by wolf (2026-11-20):
 - Diversity is enforced again at pool composition (Phase 3/5): no single source > ~30% of a published batch, caps per country, per protocol and per server IP/ASN, and a deliberate mix of protocols (VLESS/REALITY, Trojan, SS, Hysteria2, VMess) and geos (near: TR/DE/NL/FI + spread). A batch that fails the mix check is rebalanced, not padded from one source.
 - Phase 1b DONE 2026-11-20 (report: phase1b-diverse-sources.md): 12 new candidates across Telegram / CN / RU / FA facets. Keeps: PulseProxy (RU whitelist — 772/772 valid, 710 hosts, only 0.6% overlap with the Phase-1 family = a genuinely independent second backbone), @outline_vpn (FA), @Surfboardv2ray (FA — prefer its pinned sub links in Phase 2), MohammadBahemmat/V2ray-Collector (broad, but 39.5% family overlap, dedup-critical). Watch ×5, Drop ×3. Registry now spans two near-disjoint large pools + operator-direct FA Telegram channels.
 
-## Phase 2 — Collector + parser + dedup
+## Phase 2 — Collector + parser + dedup — DONE 2026-11-20
+- Built and committed: pipeline/sources.json (7 keep sources), pipeline/collector.py (stdlib-only, Gate-1 rejects, cross-source dedup on protocol+server+port+credential-hash, stats-only output — credentials never written out), pipeline/test_collector.py (18/18 tests pass).
+- First live run: 2,581 fetched → 2,554 valid → 733 dupes → **1,821 unique configs / 1,681 hosts** (mix: vless 1,376 · ss 263 · trojan 77 · vmess 56 · hysteria2 48 · tuic 1). NoMoreWalls contributed only 53 unique-new (mostly ermaozi dupes — the one-pool finding, measured). These 1,821 are Phase 3's input; parse-valid ≠ alive.
 - Protocols in scope: VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC.
 - Strict parse + normalise; dedup key = protocol + server + port + credential hash (same server under 50 remarks = 1 entry).
-- DONE 2026-11-20: built `pipeline/collector.py` + `pipeline/sources.json` (7 keep sources from Phases 1/1b) + `pipeline/test_collector.py` (18 tests, all passing). First live run: 7/7 sources fetched, 2,581 candidates → 2,554 parse-valid, 27 Gate-1 rejects, 733 duplicates → 1,821 unique configs / 1,681 hosts. Raw configs are never stored or committed — stats output only.
 
 ## Phase 3 — Verifier (the core — config checkup)
 Three gates; a config must pass ALL of them:
@@ -55,12 +56,15 @@ Tiers (STRICT — upgraded by wolf on 2026-11-20: "the stricter the better; ever
 - Never lower the bar to fill a post: a thin hour posts fewer configs, an empty hour posts only the Phase-4 anchors or nothing. Quality over quantity, always.
 Known limit: runners are outside Iran — a pass proves the config truly works, not that an Iranian ISP won't block its IP. Mitigation: prefer REALITY + CDN-fronted configs, nearby geos, and bot user feedback (Phase 6) to drop Iran-dead entries fast.
 
+- Progress (2026-11-20, Agent: Rick): verifier core BUILT — `pipeline/verifier.py` (Gate 2 + Gate 3 with loopback-pair positive control and dead-config negative control, stats-only output, publish-time rebrand helpers `format_remark`/`rebrand_uri` with unit tests) and `.github/workflows/verify.yml` (hourly, pinned sing-box v1.11.15, stats artifact, publishes nothing). Proof run in the build sandbox (40-config sample from the 1,821 unique): controls OK (positive passed, negative failed); Gate 2 40/40 (inflated by the sandbox's transparent gateway); Gate 3 candidates 0/40 because the sandbox blocks direct TLS egress (verified independently) — real Gate-3 pass rates will be measured on GitHub Actions runners. Outbound-builder correctness: 60/60 sampled configs pass `sing-box check`.
+
 ## Phase 4 — Own anchor configs (Cloudflare)
 - Minimal own VLESS+WS+TLS Worker on the new CF account (written in-house, no upstream project dependency).
 - These are the guaranteed-alive anchors: public posts rotate them, VIP sub always includes them.
 - Watch free-plan limits + abuse risk; anchors are a backbone, not the whole pool.
 
 ## Phase 5 — Publisher (new CF Worker)
+- Rebranding rule (wolf, 2026-11-20): every published config is RENAMED to the channel's own name before posting — the remark is display-only (URI `#fragment`, vmess `ps`) and never affects the connection; dedup/verifier keys ignore remarks entirely. Format: `PROXIV3 · <flag> <country> · <PROTOCOL> · <latency>ms`. VIP sub profile-title: `PROXIV3 VIP`. Renaming happens after verification, at publish time.
 - Cron hourly: read verified pool from KV, post one batch to @Proxiv3 (protocol, country, latency, tested-at, config in a copyable block).
 - VIP sub endpoint: fixed link /sub/<secret> serving the current VIP pool (base64, standard headers) — content refreshed hourly, link never changes. Wrong secret = 404.
 - Cron-only for the old bot token if reused for posting; the publisher never calls setWebhook (protects the old MTProto bot).
