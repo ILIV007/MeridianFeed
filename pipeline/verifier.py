@@ -125,15 +125,16 @@ def collect_candidates(registry_path, limit):
 # any connection field, so a rebranded config keeps the collector's
 # dedup key and parses to the identical record.
 
-def format_remark(country_code, protocol, latency_ms):
-    """'PROXIV3 · <flag> <CC> · <PROTOCOL> · <latency>ms'."""
+def format_remark(country_code, protocol):
+    """'PROXIV3 · <flag> <CC> · <PROTOCOL>' — no latency figure in the
+    config name (wolf's rule, 2026-11-20)."""
     cc = (country_code or "").strip().upper()
     if len(cc) == 2 and cc.isalpha():
         flag = "".join(chr(0x1F1E6 + ord(ch) - 65) for ch in cc)
     else:
         flag, cc = "\U0001F310", cc or "??"
-    return "PROXIV3 · %s %s · %s · %dms" % (
-        flag, cc, (protocol or "").strip().upper(), int(round(latency_ms)))
+    return "PROXIV3 · %s %s · %s" % (
+        flag, cc, (protocol or "").strip().upper())
 
 
 def rebrand_uri(uri, remark):
