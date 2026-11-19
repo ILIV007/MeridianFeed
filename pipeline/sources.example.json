@@ -1,0 +1,11 @@
+{
+  "_comment": "Template registry only. Real sources are audited in Phase 1 (parse / dead / duplicate rates measured) before being added — do not add unaudited sources.",
+  "sources": [
+    {
+      "name": "example-source",
+      "url": "https://example.invalid/sub",
+      "enabled": false,
+      "notes": "Placeholder entry showing the registry shape; not a real source."
+    }
+  ]
+}
