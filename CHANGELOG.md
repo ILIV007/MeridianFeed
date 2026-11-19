@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-20 — Phase 3 verifier core built
+
+- `pipeline/verifier.py` (stdlib only, reuses the collector's fetch/parse/dedup; raw URIs in memory only): Gate 2 (DNS + TCP, concurrent) and Gate 3 (one sing-box tunnel per config — 3-probe median latency, generate_204, trace egress-IP/country confirmation, 256 KB speed sample; bounded concurrency of 4). Controls run first in every run: a local loopback sing-box pair + local origin as the positive control and a dead TEST-NET config as the negative; a failed control invalidates the run and nothing is verified. Output is a stats JSON only — no credentials, servers or egress IPs are ever written out.
+- `.github/workflows/verify.yml`: hourly + manual runs on GitHub Actions with a pinned, checksum-verified sing-box (v1.11.15); uploads the stats JSON as an artifact. Publishes nothing (publishing is Phase 5; tiers need the strict repeat passes across runs).
+- Rebranding helpers (display-only, for publish time): `format_remark()` → `PROXIV3 · <flag> <CC> · <PROTOCOL> · <latency>ms` and `rebrand_uri()` (rewrites only the URI fragment / vmess `ps`; record and dedup key unchanged) — `pipeline/test_verifier.py`, 5 tests passing.
+- Proof run (2026-11-20, build sandbox, 40-config sample): 2,581 fetched → 2,554 Gate-1 valid → 1,821 unique → 40 sampled; Gate 2: 40/40 (inflated here — the sandbox gateway accepts TCP broadly); controls OK (positive passed at 0.9 ms median, negative failed as required); Gate 3 candidates: 0/40, all at the 204 probe — an environment artifact: the sandbox blocks direct TLS egress (verified without sing-box), which candidate tunnels need. Real Gate-3 rates will be measured on Actions runners. Outbound-builder correctness checked separately: 60/60 sampled configs pass `sing-box check` (a ws-transport naming bug was found and fixed during the run).
+
+Agent: Rick
+
 ## 2026-11-20 — Phase 2 collector built
 
 - Phase 2 complete: `pipeline/collector.py` (stdlib-only) fetches the keep-source registry (`pipeline/sources.json` — 7 sources: ermaozi, NoMoreWalls, mahdibland Eternity, PulseProxy, @outline_vpn, @Surfboardv2ray, Bahemmat), parses vless/vmess/trojan/ss/hysteria2/tuic, applies Gate-1 hard-rejects, and dedups across sources on protocol+server+port+credential-hash. Raw configs stay in memory; the only output is a stats JSON — no credentials are stored or committed.
