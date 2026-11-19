@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-11-20 — Final remark format
+- Published config remarks now use wolf's final format: `🪼 PROXIV3 · <flag> <CC> · <PROTOCOL> · Verified` — the @Proxiv3 channel's own 🪼 signature emoji up front, and the word Verified in place of any latency figure (no ms anywhere in config names).
+- `format_remark()` in `pipeline/verifier.py` updated; `pipeline/test_verifier.py` asserts the 🪼 PROXIV3 prefix, the `· Verified` suffix, and that no digits / latency value leak into the name.
+- Agent: Rick
+
 ## 2026-11-20 — Remark format corrected
 
 - Config names carry NO latency figure (wolf's correction): `format_remark(country, protocol)` now returns `PROXIV3 · <flag> <CC> · <PROTOCOL>` only. Tests and pipeline README updated accordingly.
