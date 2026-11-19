@@ -12,11 +12,25 @@ Every candidate source (public subscription, GitHub list, channel feed) is sampl
 
 Sources with a non-viable alive ratio are dropped at this gate and never enter the registry. Real sources are added to the registry only after this audit (see `sources.example.json` for the registry shape).
 
-## Phase 2 — Collector, parser, dedup
+## Phase 2 — Collector, parser, dedup — BUILT (2026-11-20)
 
-- Protocols in scope: VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC.
-- Strict parsing and normalisation; malformed entries are discarded, not repaired by guessing.
-- Dedup key = `protocol + server + port + credential hash`. The same server published under fifty different remarks is one entry.
+`pipeline/collector.py` (Python, stdlib only) is the collector:
+
+- **Registry:** `pipeline/sources.json` — the keep sources from the Phase 1 / 1b checkups only (ermaozi, NoMoreWalls, mahdibland Eternity, PulseProxy, @outline_vpn, @Surfboardv2ray, Bahemmat collector), each tagged with its diversity facet.
+- **Fetch:** one polite fetch per source (browser UA, timeout), base64 subscription payloads decoded, config URIs extracted from raw lists and Telegram public-preview pages alike.
+- **Parse:** strict parsing for VLESS, VMess (base64 JSON), Trojan, Shadowsocks (plain, base64-userinfo and legacy whole-blob forms), Hysteria2 and TUIC, normalised into records of protocol + server + port + credential hash (SHA-256) + transport + source. Malformed entries are discarded, not repaired by guessing. **Raw configs are kept in memory only — the collector outputs a stats JSON (counts per source and totals); no credentials are stored or committed.**
+- **Gate-1 rejects at parse time:** loopback / private / reserved hosts (including the `127.0.0.53` placeholder), missing ports or credentials, out-of-range ports.
+- **Dedup:** key = `protocol + server + port + credential hash`, applied across all sources. The same server published under fifty different remarks is one entry.
+
+Run it:
+
+```
+python3 pipeline/collector.py pipeline/sources.json
+```
+
+Tests (synthetic fixtures only): `python3 -m unittest pipeline.test_collector` — 18 tests covering the parser, the Gate-1 rejects and the dedup key, all passing.
+
+First live run (2026-11-20): 7/7 sources fetched — 2,581 candidates → 2,554 parse-valid, 27 Gate-1 rejects, 733 duplicates removed → **1,821 unique configs on 1,681 hosts** (deduped mix: vless 1,376, ss 263, trojan 77, vmess 56, hysteria2 48, tuic 1). Parse-valid is still not alive — that is Phase 3's measurement.
 
 ## Phase 3 — The 3-gate verifier (STRICT)
 
