@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-20 — Phase 1b source diversification complete
+
+- Phase 1b source diversification complete: 12 candidates sampled across Telegram / CN / RU / FA facets (report: docs/phase1b-diverse-sources.md). Keeps: PulseProxy, @outline_vpn, @Surfboardv2ray, Bahemmat collector. The source registry now spans two near-disjoint large pools, reducing single-pool dependence.
+
+Agent: Rick
+
 ## 2026-11-20 — Verifier upgraded to strict mode
 
 - Verifier upgraded to strict mode at wolf's direction: double Gate-3 pass before first publish, 3-probe median latency and speed floors, dual egress/geo confirmation, Gate-1 hard-rejects (incl. placeholder hosts), and quarantine on the first failure — quality over quantity, and the bar is never lowered to fill a post.
