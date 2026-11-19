@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-20 — Phase 2 collector built
+
+- Phase 2 complete: `pipeline/collector.py` (stdlib-only) fetches the keep-source registry (`pipeline/sources.json` — 7 sources: ermaozi, NoMoreWalls, mahdibland Eternity, PulseProxy, @outline_vpn, @Surfboardv2ray, Bahemmat), parses vless/vmess/trojan/ss/hysteria2/tuic, applies Gate-1 hard-rejects, and dedups across sources on protocol+server+port+credential-hash. Raw configs stay in memory; the only output is a stats JSON — no credentials are stored or committed.
+- First live run (2026-11-20): 7/7 sources fetched; 2,581 candidates → 2,554 parse-valid, 27 Gate-1 rejects, 733 duplicates removed → 1,821 unique configs on 1,681 hosts (deduped mix: vless 1,376, ss 263, trojan 77, vmess 56, hysteria2 48, tuic 1).
+- Unit tests: `pipeline/test_collector.py` — 18 tests (parser, Gate-1 rejects, dedup), all passing.
+
+Agent: Rick
+
 ## 2026-11-20 — Phase 1b source diversification complete
 
 - Phase 1b source diversification complete: 12 candidates sampled across Telegram / CN / RU / FA facets (report: docs/phase1b-diverse-sources.md). Keeps: PulseProxy, @outline_vpn, @Surfboardv2ray, Bahemmat collector. The source registry now spans two near-disjoint large pools, reducing single-pool dependence.
