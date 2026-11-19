@@ -56,7 +56,9 @@ Tiers (STRICT — upgraded by wolf on 2026-11-20: "the stricter the better; ever
 - Never lower the bar to fill a post: a thin hour posts fewer configs, an empty hour posts only the Phase-4 anchors or nothing. Quality over quantity, always.
 Known limit: runners are outside Iran — a pass proves the config truly works, not that an Iranian ISP won't block its IP. Mitigation: prefer REALITY + CDN-fronted configs, nearby geos, and bot user feedback (Phase 6) to drop Iran-dead entries fast.
 
-- Progress (2026-11-20, Agent: Rick): verifier core BUILT — `pipeline/verifier.py` (Gate 2 + Gate 3 with loopback-pair positive control and dead-config negative control, stats-only output, publish-time rebrand helpers `format_remark`/`rebrand_uri` with unit tests) and `.github/workflows/verify.yml` (hourly, pinned sing-box v1.11.15, stats artifact, publishes nothing). Proof run in the build sandbox (40-config sample from the 1,821 unique): controls OK (positive passed, negative failed); Gate 2 40/40 (inflated by the sandbox's transparent gateway); Gate 3 candidates 0/40 because the sandbox blocks direct TLS egress (verified independently) — real Gate-3 pass rates will be measured on GitHub Actions runners. Outbound-builder correctness: 60/60 sampled configs pass `sing-box check`.
+## Phase 3 progress (2026-11-20)
+- Verifier core BUILT and committed: pipeline/verifier.py (Gate 2 DNS+TCP; Gate 3 sing-box tunnel per config — 3-probe median latency, generate_204, egress-IP/country confirmation, speed sample), controls run first in every run (positive loopback pair passed 0.9 ms; negative dead config correctly failed), stats-only output. .github/workflows/verify.yml added (hourly + dispatch, pinned sing-box v1.11.15, publishes nothing). Rebrand helper + tests in place.
+- Proof run in this sandbox: Gate 3 passed 0/40 sampled — an ENVIRONMENT artifact (the sandbox blocks direct TLS egress, verified independently of sing-box; the sing-box outbound builder passed 60/60 `sing-box check`). Real Gate-3 pass rates come from the Actions workflow run, still to be observed.
 
 ## Phase 4 — Own anchor configs (Cloudflare)
 - Minimal own VLESS+WS+TLS Worker on the new CF account (written in-house, no upstream project dependency).
@@ -64,7 +66,7 @@ Known limit: runners are outside Iran — a pass proves the config truly works, 
 - Watch free-plan limits + abuse risk; anchors are a backbone, not the whole pool.
 
 ## Phase 5 — Publisher (new CF Worker)
-- Rebranding rule (wolf, 2026-11-20): every published config is RENAMED to the channel's own name before posting — the remark is display-only (URI `#fragment`, vmess `ps`) and never affects the connection; dedup/verifier keys ignore remarks entirely. Format: `PROXIV3 · <flag> <country> · <PROTOCOL> · <latency>ms`. VIP sub profile-title: `PROXIV3 VIP`. Renaming happens after verification, at publish time.
+- Rebranding rule (wolf, 2026-11-20): every published config is RENAMED to the channel's own name before posting — the remark is display-only (URI `#fragment`, vmess `ps`) and never affects the connection; dedup/verifier keys ignore remarks entirely. Format: `🪼 PROXIV3 · <flag> <country> · <PROTOCOL> · Verified` — the channel's own 🪼 emoji up front (its signature: channel title "🪼PROXIV3", post footer "🪼 @PROXIV3"), the word Verified instead of any real latency figure (wolf, 2026-11-20: no real latency on the names, "Verified" is enough). VIP sub profile-title: `🪼 PROXIV3 VIP`. Renaming happens after verification, at publish time.
 - Cron hourly: read verified pool from KV, post one batch to @Proxiv3 (protocol, country, latency, tested-at, config in a copyable block).
 - VIP sub endpoint: fixed link /sub/<secret> serving the current VIP pool (base64, standard headers) — content refreshed hourly, link never changes. Wrong secret = 404.
 - Cron-only for the old bot token if reused for posting; the publisher never calls setWebhook (protects the old MTProto bot).
