@@ -27,6 +27,11 @@ Scope locked by wolf (2026-11-20):
 - Measure per source: parse rate, dead rate, duplicate rate. Drop junk sources at this gate.
 - Output: checkup report with real numbers; only sources with a viable alive-ratio continue.
 
+## Phase 1b — Source diversification (added by wolf on 2026-11-20: sources must be diverse, from different facets)
+- Phase 1's keeps are largely ONE upstream pool in three hats — not diverse enough. Scout additional facets: Telegram public channels that post configs, aggregators from other scenes/languages (CN/RU/FA), direct community/airport free lists, and index sites — each sampled with the same Phase 1 metrics before joining the registry.
+- Diversity is enforced again at pool composition (Phase 3/5): no single source > ~30% of a published batch, caps per country, per protocol and per server IP/ASN, and a deliberate mix of protocols (VLESS/REALITY, Trojan, SS, Hysteria2, VMess) and geos (near: TR/DE/NL/FI + spread). A batch that fails the mix check is rebalanced, not padded from one source.
+- Phase 1b DONE 2026-11-20 (report: phase1b-diverse-sources.md): 12 new candidates across Telegram / CN / RU / FA facets. Keeps: PulseProxy (RU whitelist — 772/772 valid, 710 hosts, only 0.6% overlap with the Phase-1 family = a genuinely independent second backbone), @outline_vpn (FA), @Surfboardv2ray (FA — prefer its pinned sub links in Phase 2), MohammadBahemmat/V2ray-Collector (broad, but 39.5% family overlap, dedup-critical). Watch ×5, Drop ×3. Registry now spans two near-disjoint large pools + operator-direct FA Telegram channels.
+
 ## Phase 2 — Collector + parser + dedup
 - Protocols in scope: VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC.
 - Strict parse + normalise; dedup key = protocol + server + port + credential hash (same server under 50 remarks = 1 entry).
