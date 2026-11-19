@@ -97,5 +97,28 @@ class RebrandTests(unittest.TestCase):
         self.assertEqual(data["path"], "/ws")
 
 
+class PassKeyTests(unittest.TestCase):
+    def test_opaque_and_stable(self):
+        record = collector.parse_uri(FIXTURES["vless"], "test")
+        key = verifier.pass_key(record)
+        self.assertEqual(len(key), 64)
+        self.assertTrue(all(ch in "0123456789abcdef" for ch in key))
+        # The key must not leak the server or the credential.
+        self.assertNotIn("203.0.113.10", key)
+        self.assertNotIn(UUID, key)
+        # Stable across re-parses of the same config, and unchanged by
+        # display-only rebranding.
+        again = collector.parse_uri(FIXTURES["vless"], "other-source")
+        self.assertEqual(verifier.pass_key(again), key)
+        rebranded = collector.parse_uri(
+            verifier.rebrand_uri(FIXTURES["vless"], "X"), "test")
+        self.assertEqual(verifier.pass_key(rebranded), key)
+
+    def test_distinct_configs_distinct_keys(self):
+        keys = {verifier.pass_key(collector.parse_uri(uri, "test"))
+                for uri in FIXTURES.values()}
+        self.assertEqual(len(keys), len(FIXTURES))
+
+
 if __name__ == "__main__":
     unittest.main()

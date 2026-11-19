@@ -1,3 +1,11 @@
+## 2026-11-20 — Verifier v1.1.0: per-pass opaque keys (tier intersection)
+
+- `pipeline/verifier.py` now emits one opaque record per Gate-3 pass in the stats JSON: the SHA-256 of the config's dedup key plus protocol, source, egress country, latency, speed and a public-criteria flag. One-way hashes only — still no config, credential, server or egress IP is written anywhere. This makes the strict repeat-pass tiers computable across runs: public = the same key passed in two runs at least ~15 minutes apart; VIP = the same key passed in three consecutive cycles.
+- Note: run 44623695513 predates this and kept stats only, so its individual passes cannot be intersected retroactively; the tier clocks start with the first v1.1.0 runs.
+- Tests: 25/25 pass (18 collector + 7 verifier, 2 new pass-key tests).
+
+Agent: Rick
+
 ## 2026-11-20 — First real GitHub Actions verify run (Phase 3)
 
 - Workflow `verify` run 44623695513 completed with conclusion **success**; stats artifact `verify-stats-44623695513`. Run numbers: input fetched 2,581 → Gate 1 valid 2,554 → 1,821 unique → sampled 200. Controls ok (positive pass, negative correctly failed). Gate 2: 173/200 passed. Gate 3: 106/173 passed (ss 52, vless 38, vmess 10, hysteria2 4, trojan 2); latency median 359.7 ms / p90 811.9 ms; speed median 2.42 Mbps / p90 7.66 Mbps; 93 met the single-run public criteria. Nothing published — strict tier assignment still requires the repeat passes.
