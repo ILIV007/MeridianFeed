@@ -12,6 +12,7 @@ Scope locked by wolf (2026-11-20):
 - On the Cloudflare side, NO sensitive words in ANY identifier: account name, workers.dev subdomain, Worker names, KV/D1 names, routes, secret names. Banned words: proxy, v2ray, vpn, tunnel, bypass, free, pool, proxiv3, iran, filter and similar.
 - CF codenames: publisher Worker `meridian-pub`, sub Worker `meridian-sub`, anchor Worker (Phase 4) under a separate bland name, KV `MERIDIAN_STORE`. Branding (PROXIV3 etc.) lives only in Telegram post text, never in infrastructure names.
 - Risk posture: the CF account only serves light content (hourly post cron + static sub reads). No mass scraping from CF, no open relay; the sub path stays secret; the Phase-4 anchor stays low-volume. Heavy work (collecting/verifying) stays on GitHub Actions.
+- Deployment rule (wolf, 2026-11-20): the GitHub account is NOT connected to Cloudflare — no Cloudflare GitHub App, no Workers Builds git integration, no OAuth link. Exactly like Lyra: Workers are deployed via API token only (wrangler/API from Rick's side), and the GitHub Actions pipeline talks to Cloudflare only through the CF API (e.g. KV writes with an API token held as an Actions secret). GitHub and Cloudflare stay fully decoupled.
 
 ## Phase 0 — Decisions & access (needs wolf)
 - Repo created 2026-11-20: ILIV007/Pool-v2ray (public, empty at creation; scaffold in progress).
@@ -19,7 +20,9 @@ Scope locked by wolf (2026-11-20):
 - New bot created by wolf in BotFather and added as admin to @Proxiv3.
 - Secrets only via Secure Vault / CF secrets / GH Actions secrets. Never in repo or chat.
 
-## Phase 1 — Source checkup (before any code)
+## Phase 1 — Source checkup (before any code) — DONE 2026-11-20
+- 11 sources sampled, report at phase1-source-checkup.md (also in repo docs/). Keep: ermaozi/get_subscribe, peasoft/NoMoreWalls, mahdibland/V2RayAggregator (Eternity). Watch: EternityAir, Pawdroid/Free-servers, free-nodes/v2rayfree, mehdirzfx/v2ray-sub. Drop: AutoMergePublicNodes (redundant + 17.3% malformed), barry-far (repo blocked), freefq/free (stale 2024), NiREvil wg feed (WireGuard only, out of scope).
+- Findings: NoMoreWalls / AutoMerge / ermaozi are largely one pool in three hats → cross-source dedup mandatory; `127.0.0.53` appears as a config host → Gate 1 must hard-reject placeholder hosts. Estimated intake after cross-dedup: ~700–900 unique parse-valid configs per cycle (alive ratio is Phase 3's job).
 - Build a source registry (public subs / GitHub lists / channels), each source sampled once.
 - Measure per source: parse rate, dead rate, duplicate rate. Drop junk sources at this gate.
 - Output: checkup report with real numbers; only sources with a viable alive-ratio continue.
