@@ -19,8 +19,12 @@ If the positive control fails or the negative passes, the run reports
 CONTROLS FAILED and no candidate is verified.
 
 The only output is a stats JSON — counts per gate, latency/speed
-distributions, control results. No config, credential, server or egress
-IP is ever written to disk, logs, or the repo.
+distributions, control results, and (v1.1.0) one opaque record per
+Gate-3 pass: the SHA-256 of the config's dedup key plus its protocol,
+source, egress country and probe numbers. The hash is one-way, so
+separate runs can be intersected for the strict repeat-pass tiers
+without ever writing a config, credential, server or egress IP to
+disk, logs, or the repo.
 
 Usage:
   python3 pipeline/verifier.py [pipeline/sources.json]
@@ -29,6 +33,7 @@ Usage:
 """
 import base64
 import concurrent.futures
+import hashlib
 import json
 import os
 import socket
@@ -63,6 +68,15 @@ def free_port():
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             return sock.getsockname()[1]
+
+
+def pass_key(record):
+    """Opaque per-config identifier for cross-run tier intersection:
+    the SHA-256 of the collector dedup key. One-way — it reveals
+    nothing about the server or the credential, and the same config
+    produces the same key in every run."""
+    return hashlib.sha256(
+        collector.dedup_key(record).encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------- sampling
@@ -546,7 +560,8 @@ def distribution(values):
 
 
 def verify(registry_path, sing_box, limit, workers, gate2_workers):
-    stats = {"tool": "meridianfeed-verifier", "sing_box": bool(sing_box),
+    stats = {"tool": "meridianfeed-verifier", "verifier_version": "1.1.0",
+             "sing_box": bool(sing_box), "passes": [],
              "limits": {"sample": limit, "gate3_workers": workers}}
     sample, totals = collect_candidates(registry_path, limit)
     stats["input"] = totals
@@ -581,6 +596,7 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers):
     # Gate 3 (bounded concurrency — sing-box processes are the bottleneck)
     results, fail_reasons = [], {}
     countries, protocols_pass = {}, {}
+    pass_records = []
 
     def _one(pair):
         record, uri = pair
@@ -602,6 +618,18 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers):
                 if outcome["egress_country"]:
                     countries[outcome["egress_country"]] = \
                         countries.get(outcome["egress_country"], 0) + 1
+                pass_records.append({
+                    "key_hash": pass_key(record),
+                    "protocol": record["protocol"],
+                    "source": record.get("source", ""),
+                    "egress_country": outcome["egress_country"],
+                    "latency_ms": outcome["latency_ms"],
+                    "speed_mbps": outcome["speed_mbps"],
+                    "public_criteria": bool(
+                        outcome["latency_ms"] is not None
+                        and outcome["latency_ms"] <= PUBLIC_LATENCY_MS
+                        and (outcome["speed_mbps"] or 0)
+                        >= PUBLIC_SPEED_MBPS)})
             else:
                 reason = outcome["reason"] or "unknown"
                 fail_reasons[reason] = fail_reasons.get(reason, 0) + 1
@@ -623,6 +651,7 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers):
         "note": "Tier assignment still requires the strict repeat passes "
                 "(public: a 2nd run >=15 min later; VIP: 3 consecutive "
                 "cycles) — a single run never publishes anything."}
+    stats["passes"] = pass_records
     return stats
 
 
