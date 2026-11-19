@@ -43,18 +43,20 @@ def vmess_fixture():
 
 class FormatRemarkTests(unittest.TestCase):
     def test_format(self):
-        self.assertEqual(verifier.format_remark("de", "vless", 123.6),
-                         "PROXIV3 · \U0001F1E9\U0001F1EA DE · VLESS · 124ms")
+        remark = verifier.format_remark("de", "vless")
+        self.assertEqual(remark,
+                         "PROXIV3 · \U0001F1E9\U0001F1EA DE · VLESS")
+        self.assertNotIn("ms", remark)
 
     def test_unknown_country(self):
-        remark = verifier.format_remark(None, "ss", 50)
+        remark = verifier.format_remark(None, "ss")
         self.assertTrue(remark.startswith("PROXIV3 · \U0001F310"))
         self.assertIn("SS", remark)
 
 
 class RebrandTests(unittest.TestCase):
     def assert_display_only(self, uri):
-        remark = verifier.format_remark("NL", "vless", 100)
+        remark = verifier.format_remark("NL", "vless")
         before = collector.parse_uri(uri, "test")
         self.assertIsNotNone(before)
         after = collector.parse_uri(verifier.rebrand_uri(uri, remark), "test")
@@ -76,7 +78,7 @@ class RebrandTests(unittest.TestCase):
                          FIXTURES["vless"].split("#", 1)[0])
 
     def test_vmess_ps_replaced_fields_intact(self):
-        remark = verifier.format_remark("DE", "vmess", 42)
+        remark = verifier.format_remark("DE", "vmess")
         out = verifier.rebrand_uri(vmess_fixture(), remark)
         data = json.loads(base64.b64decode(out.partition("://")[2]))
         self.assertEqual(data["ps"], remark)
