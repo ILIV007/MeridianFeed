@@ -39,10 +39,14 @@ Three gates; a config must pass ALL of them:
 Controls in EVERY run (run is invalid and publishes NOTHING if controls fail):
 - Positive control: our own Phase-4 Cloudflare config must pass Gate 3.
 - Negative control: a known-dead config must fail.
-Tiers:
-- Public pool: Gate 3 passed once in the current cycle.
-- VIP pool: Gate 3 passed in 2 consecutive cycles + latency/speed thresholds + sorted best-first, capped (~30–50), mixed countries/protocols.
-Expiry: re-verified every hour before posting; 2 consecutive failures = removed. Nothing is published on age alone.
+Tiers (STRICT — upgraded by wolf on 2026-11-20: "the stricter the better; every config we use must be healthy"):
+- First publish (any tier): Gate 3 passed TWICE in two separate runs at least ~15 minutes apart. A single lucky pass publishes nothing.
+- Public pool: the double-pass above + latency gate (median of 3 tunnel probes ≤ 800 ms, any probe timeout = fail) + minimum download speed on a small test file.
+- VIP pool: Gate 3 passed in 3 consecutive cycles + stricter latency/speed floors + sorted best-first, capped (~30–50), mixed countries/protocols, max 2 configs per server IP (forces diversity).
+- Gate 1 hard-rejects: loopback/private/reserved hosts (incl. the `127.0.0.53` placeholder found in Phase 1), expired or nonsense TLS/SNI, credentials shared by an implausible number of distinct hosts.
+- Gate 3 must confirm BOTH a generate_204 success AND a real HTTPS fetch whose egress IP differs from the runner and whose geo matches the config's claimed country.
+- Expiry/quarantine: re-verified every hour, and the exact post batch is re-verified right before posting (nothing older than 60 minutes is posted). ONE failed re-check = quarantined (not published); 2 consecutive failures = removed. VIP drops out on the first failure.
+- Never lower the bar to fill a post: a thin hour posts fewer configs, an empty hour posts only the Phase-4 anchors or nothing. Quality over quantity, always.
 Known limit: runners are outside Iran — a pass proves the config truly works, not that an Iranian ISP won't block its IP. Mitigation: prefer REALITY + CDN-fronted configs, nearby geos, and bot user feedback (Phase 6) to drop Iran-dead entries fast.
 
 ## Phase 4 — Own anchor configs (Cloudflare)
