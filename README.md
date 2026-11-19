@@ -1,8 +1,10 @@
-# Pool-v2ray
+# MeridianFeed
 
 **A V2Ray config pool for the Telegram channel [@Proxiv3](https://t.me/Proxiv3) — only configs proven working, nothing else.**
 
-Pool-v2ray collects public V2Ray configs (VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC), verifies them for real, and publishes the survivors to [@Proxiv3](https://t.me/Proxiv3). It is the V2Ray companion to the existing MTProto system in the Proxiv3 repo, built in its own repository and on a new Cloudflare account so the live MTProto service stays untouched.
+MeridianFeed is the codename for the V2Ray config pool behind @Proxiv3.
+
+MeridianFeed collects public V2Ray configs (VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC), verifies them for real, and publishes the survivors to [@Proxiv3](https://t.me/Proxiv3). It is the V2Ray companion to the existing MTProto system in the Proxiv3 repo, built in its own repository and on a new Cloudflare account so the live MTProto service stays untouched.
 
 ## How it works
 
