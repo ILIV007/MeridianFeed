@@ -45,13 +45,21 @@ class FormatRemarkTests(unittest.TestCase):
     def test_format(self):
         remark = verifier.format_remark("de", "vless")
         self.assertEqual(remark,
-                         "PROXIV3 · \U0001F1E9\U0001F1EA DE · VLESS")
+                         "\U0001FABC PROXIV3 · \U0001F1E9\U0001F1EA DE"
+                         " · VLESS · Verified")
+        self.assertTrue(remark.startswith("\U0001FABC PROXIV3"))
+        self.assertTrue(remark.endswith("· Verified"))
+        self.assertIn("\U0001F1E9\U0001F1EA DE", remark)
+        self.assertIn("VLESS", remark)
         self.assertNotIn("ms", remark)
+        # No digits anywhere: no latency value may leak into the name.
+        self.assertFalse(any(ch.isdigit() for ch in remark))
 
     def test_unknown_country(self):
         remark = verifier.format_remark(None, "ss")
-        self.assertTrue(remark.startswith("PROXIV3 · \U0001F310"))
+        self.assertTrue(remark.startswith("\U0001FABC PROXIV3 · \U0001F310"))
         self.assertIn("SS", remark)
+        self.assertTrue(remark.endswith("· Verified"))
 
 
 class RebrandTests(unittest.TestCase):
