@@ -195,5 +195,52 @@ class FinalmaskTests(unittest.TestCase):
                 self.assertIsNone(verifier.build_xray_outbound(uri))
 
 
+class AbFinalmaskSmokeTests(unittest.TestCase):
+    """ab_finalmask orchestration with every network/binary seam
+    stubbed. Regression guard: run 44704432326 died on
+    gate2(record)["ok"] — gate2 returns an (ok, reason) tuple."""
+
+    def test_paired_counts_with_stubbed_seams(self):
+        from unittest import mock
+        record = {"protocol": "vless", "server": "edge.example.com",
+                  "port": 443, "source": "fixture",
+                  "credential_hash": "fixturehash"}
+        uri = FinalmaskTests.VLESS_WS
+
+        def fake_tunnel(outbound, binary, direct_ip, urls=None):
+            return {"pass": True, "reason": None, "latency_ms": 42.0,
+                    "speed_mbps": 3.0, "egress_country": "NL"}
+
+        def fake_xray_tunnel(outbound, binary, direct_ip, urls=None):
+            return {"pass": False, "reason": "probe204",
+                    "latency_ms": None, "speed_mbps": None,
+                    "egress_country": None}
+
+        with mock.patch.object(verifier, "collect_candidates",
+                               return_value=([(record, uri)], {})), \
+             mock.patch.object(verifier, "gate2",
+                               return_value=(True, "ok")), \
+             mock.patch.object(verifier, "direct_egress",
+                               return_value=(None, None)), \
+             mock.patch.object(verifier, "run_controls",
+                               return_value={"ok": True}), \
+             mock.patch.object(verifier, "run_xray_controls",
+                               return_value={"ok": True}), \
+             mock.patch.object(verifier, "run_tunnel",
+                               side_effect=fake_tunnel), \
+             mock.patch.object(verifier, "run_xray_tunnel",
+                               side_effect=fake_xray_tunnel):
+            stats = verifier.ab_finalmask("unused.json", "sb", "xray",
+                                          10, 10, 2)
+        self.assertEqual(stats["subjects"], 1)
+        self.assertEqual(stats["paired"],
+                         {"both": 0, "plain_only": 1,
+                          "enhanced_only": 0, "neither": 0})
+        self.assertEqual(stats["plain"]["passes"], 1)
+        self.assertEqual(stats["enhanced"]["passes"], 0)
+        self.assertEqual(stats["per_subject"][0]["plain"], True)
+        self.assertEqual(stats["per_subject"][0]["enhanced"], False)
+
+
 if __name__ == "__main__":
     unittest.main()

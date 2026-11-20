@@ -792,7 +792,7 @@ def ab_finalmask(registry_path, sing_box, xray, limit, collect_limit,
             break
         if build_xray_outbound(uri) is None:
             continue
-        if not gate2(record)["ok"]:
+        if not gate2(record)[0]:
             continue
         subjects.append((record, uri))
     stats["subjects"] = len(subjects)
