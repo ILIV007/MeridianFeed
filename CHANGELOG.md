@@ -1,3 +1,10 @@
+## 2026-11-20 — Gate-IR controls: Globalping fallback when check-host is silent
+
+- Second live cycle (run 44723601784) again landed `neutral_controls` — and the new stats diagnostics showed why: both control attempts returned null/null from the Actions runner (the check-host API produces no verdict at all from the shared runner egress; Gate-3 itself stayed healthy, 136 passes). The stage's fail-open held again (VIP composed 1/6/1 across tiers via the field-verified override + fills, rescue_count 2).
+- **Fix (within the R6 design — Globalping is the designated second opinion when check-host is unavailable):** if check-host never produces a verdict across both control attempts, the control pair falls back to Globalping's Iran probes (`ir_counts.controls.via` records `check-host` / `globalping` / `none`). A real check-host verdict failure is never overridden — only API silence triggers the fallback. Tests: fallback passes only when the Globalping pair behaves; a genuine check-host failure never consults Globalping. Pipeline suite 74/74.
+
+Agent: Rick
+
 ## 2026-11-20 — Gate-IR first live cycle: VIP-floor fill deadlock fixed, controls hardened
 
 - **First live Gate-IR cycle (verify run 44721173582):** Gate-3 healthy (135 passes), but the Gate-IR controls failed on the Actions runner, so the stage degraded to `neutral_controls` for all 62 checked endpoints — 0 reachable, 0 unreachable, 62 neutral. The fail-open design held exactly as specified: no key was condemned on a broken checker, and Tier 1 withheld all 31 neutral candidates per the R6 rule (`vip_ir_excluded {false: 0, neutral: 31}`).

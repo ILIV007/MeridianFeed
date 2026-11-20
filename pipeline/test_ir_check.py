@@ -83,7 +83,8 @@ class ControlsTests(unittest.TestCase):
 
     def test_positive_control_failure_neutralises(self):
         self.assertFalse(ir_check.controls_ok(scripted(False, False)))
-        self.assertFalse(ir_check.controls_ok(scripted(None, False)))
+        self.assertFalse(ir_check.controls_ok(scripted(None, False),
+                                              gp=scripted()))
 
     def test_negative_control_success_neutralises(self):
         self.assertFalse(ir_check.controls_ok(scripted(True, True)))
@@ -97,8 +98,26 @@ class ControlsTests(unittest.TestCase):
         self.assertIs(ir_check.LAST_CONTROLS["negative"], False)
 
     def test_controls_stay_failed_after_both_attempts(self):
-        self.assertFalse(ir_check.controls_ok(scripted(None, None)))
+        self.assertFalse(ir_check.controls_ok(scripted(None, None),
+                                              gp=scripted()))
         self.assertEqual(ir_check.LAST_CONTROLS["attempts"], 2)
+
+    def test_controls_fall_back_to_globalping_when_checkhost_silent(self):
+        gp = scripted(True, False)
+        self.assertTrue(ir_check.controls_ok(scripted(None, None), gp=gp))
+        self.assertEqual(ir_check.LAST_CONTROLS["via"], "globalping")
+
+    def test_globalping_controls_must_also_behave(self):
+        self.assertFalse(ir_check.controls_ok(
+            scripted(None, None), gp=scripted(True, True)))
+        self.assertFalse(ir_check.controls_ok(
+            scripted(None, None), gp=scripted(None, False)))
+
+    def test_real_checkhost_verdict_failure_is_never_overridden(self):
+        gp = scripted(True, False)
+        self.assertFalse(ir_check.controls_ok(scripted(False, False),
+                                              gp=gp))
+        self.assertEqual(len(gp.calls), 0)
 
 
 class AnnotateTests(unittest.TestCase):

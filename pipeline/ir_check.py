@@ -198,28 +198,45 @@ def endpoint_verdict(host, port, ch=probe_check_host, gp=probe_globalping):
     return None
 
 
-LAST_CONTROLS = {"attempts": 0, "positive": None, "negative": None}
+LAST_CONTROLS = {"attempts": 0, "positive": None, "negative": None,
+                 "via": "none"}
 
 
-def controls_ok(ch=probe_check_host):
+def controls_ok(ch=probe_check_host, gp=probe_globalping):
     """Positive control must be reachable from Tehran, negative must
     fail. Any other outcome means the checker itself is untrustworthy
     this run and the stage must go neutral. The pair is attempted
     twice: one transient API hiccup on a shared runner egress IP must
     not neutralise the whole stage (the first live cycle, run
     44721173582, went neutral_controls with no diagnosable trace —
-    LAST_CONTROLS now records the verdicts into the run stats)."""
+    LAST_CONTROLS now records the verdicts into the run stats).
+
+    If check-host never produces a verdict at all (API unavailable
+    from the runner — live runs 44721173582 and 44723601784 both came
+    back null/null on every attempt), the pair falls back to
+    Globalping's Iran probes, the design's second opinion. A real
+    check-host verdict failure (the Tehran node itself misbehaving)
+    is never overridden this way."""
     LAST_CONTROLS.update({"attempts": 0, "positive": None,
-                          "negative": None})
+                          "negative": None, "via": "none"})
+    saw_verdict = False
     for _ in range(2):
         positive = ch(*POSITIVE_CONTROL)
         negative = ch(*NEGATIVE_CONTROL)
         LAST_CONTROLS.update({"attempts": LAST_CONTROLS["attempts"] + 1,
                               "positive": positive,
-                              "negative": negative})
+                              "negative": negative, "via": "check-host"})
+        if positive is not None:
+            saw_verdict = True
         if positive is True and negative is False:
             return True
-    return False
+    if saw_verdict:
+        return False
+    positive = gp(*POSITIVE_CONTROL)
+    negative = gp(*NEGATIVE_CONTROL)
+    LAST_CONTROLS.update({"positive": positive, "negative": negative,
+                          "via": "globalping"})
+    return positive is True and negative is False
 
 
 def annotate(targets, budget_s=DEFAULT_BUDGET_S, workers=DEFAULT_WORKERS,
@@ -238,7 +255,7 @@ def annotate(targets, budget_s=DEFAULT_BUDGET_S, workers=DEFAULT_WORKERS,
     if not targets:
         return verdicts, "ok", counts
     try:
-        ok = controls_ok(ch) if controls is None else controls
+        ok = controls_ok(ch, gp) if controls is None else controls
     except Exception:
         ok = False
     if not ok:
