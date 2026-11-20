@@ -74,6 +74,9 @@ jobs:
           restore-keys: |
             collector-cache-
 
+      - name: Show proxy environment (harness diagnostics)
+        run: env | grep -i proxy || echo "no proxy env vars"
+
       - name: Run paired A/B (plain sing-box vs Xray+finalmask)
         env:
           COLLECTOR_CACHE_DIR: ${{ github.workspace }}/.collector-cache

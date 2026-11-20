@@ -678,10 +678,12 @@ def build_xray_outbound(uri):
             "streamSettings": stream}
 
 
-def run_xray_tunnel(outbound, xray, direct_ip, urls=None):
+def run_xray_tunnel(outbound, xray, direct_ip, urls=None, stderr_path=None):
     """run_tunnel's Xray twin: an http inbound (urllib's ProxyHandler
     speaks HTTP proxying, not SOCKS) in front of the given outbound,
-    then the identical _probe sequence."""
+    then the identical _probe sequence. stderr_path is used only by
+    the loopback controls (diagnosability); candidate tunnels keep
+    stderr discarded."""
     url_204, url_trace, url_speed = urls or (URL_204, URL_TRACE, URL_SPEED)
     result = {"pass": False, "reason": None, "latency_ms": None,
               "speed_mbps": None, "egress_country": None}
@@ -694,9 +696,13 @@ def run_xray_tunnel(outbound, xray, direct_ip, urls=None):
         cfg_path = os.path.join(tmp, "client.json")
         with open(cfg_path, "w", encoding="utf-8") as handle:
             json.dump(config, handle)
+        err_handle = open(stderr_path, "wb") if stderr_path else None
         proc = subprocess.Popen(
             [xray, "run", "-c", cfg_path],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            stdout=subprocess.DEVNULL,
+            stderr=err_handle or subprocess.DEVNULL)
+        if err_handle:
+            err_handle.close()
         try:
             if not _wait_ready(proc, port, result, "xray_exit"):
                 return result
@@ -742,9 +748,11 @@ def run_xray_controls(xray, direct_ip):
         path = os.path.join(tmp, "server.json")
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(server_cfg, handle)
+        server_err = open(os.path.join(tmp, "server.err"), "wb")
         server = subprocess.Popen(
             [xray, "run", "-c", path],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            stdout=subprocess.DEVNULL, stderr=server_err)
+        server_err.close()
         try:
             # Deterministic readiness, not a fixed sleep: the first
             # live A/B run (44707206237) failed this control with
@@ -766,13 +774,30 @@ def run_xray_controls(xray, direct_ip):
                 local_urls = (origin_base + "/generate_204",
                               origin_base + "/trace",
                               origin_base + "/__down")
+                client_err_path = os.path.join(tmp, "client.err")
                 positive = run_xray_tunnel(client, xray, direct_ip,
-                                           urls=local_urls)
+                                           urls=local_urls,
+                                           stderr_path=client_err_path)
                 result["positive"] = {"pass": positive["pass"],
                                       "reason": positive["reason"],
                                       "latency_ms": positive["latency_ms"],
                                       "note": "local loopback xray pair + "
                                               "local origin (harness proof)"}
+                if not positive["pass"]:
+                    # Controls exist to prove the harness — when they
+                    # fail on a remote runner, the cores' own logs are
+                    # the diagnosis. Loopback control logs only: they
+                    # can contain no config or credential data.
+                    def _tail(p):
+                        try:
+                            with open(p, "rb") as fh:
+                                return fh.read()[-600:].decode(
+                                    "utf-8", "replace")
+                        except Exception:
+                            return ""
+                    result["positive"]["diag"] = {
+                        "server": _tail(os.path.join(tmp, "server.err")),
+                        "client": _tail(client_err_path)}
         finally:
             server.terminate()
             try:

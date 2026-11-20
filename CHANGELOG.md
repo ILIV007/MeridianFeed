@@ -1,3 +1,12 @@
+## 2026-11-20 — Field feedback #4 (mobile): the proven core, confirmed on both networks
+
+- **Per-key mobile/4G results (wolf):** SS 38.121.43.18:19999 → 256 ms (excellent on mobile; failed on ADSL in feedback #3 — network-dependent, exactly as recorded); CF-fronted VMess trio → 276 / 278 / 280 ms (all fast on mobile; ADSL had been 326 ms / ~2.1 s / ~2.1 s); SS CA 149.22.95.183:443 → 1,920 ms (alive, slow on mobile; 392 ms on ADSL); Hysteria2 DE + NL dead on mobile too.
+- **Proven core confirmed:** the CF-fronted VMess service + the two SS keys work on BOTH networks. Feedback store checked: all five keys already hold works: 3 (field-verified since field test #2) — no seeding change needed; SS@19999's field-verified status stands with its ADSL failure as the network-dependence record.
+- **Hysteria2 is now 0/7 counting both networks** (0/5 keys, two networks) — the VIP exclusion rule is doubly confirmed.
+- **Wolf's quality bar recorded:** "this is the quality we want" — the proven-5 profile (CF-fronted WS variants + field-proven SS) is the target VIP composition profile as supply grows; growth work (R0/R1/R5) is judged by how many NEW keys match this profile per cycle (the compose summary's field-profile share is the standing metric).
+
+Agent: Rick
+
 ## 2026-11-20 — A/B control race fixed (enhanced arm invalidated, not measured)
 
 - The first valid A/B run (44707206237, 60 subjects) completed, but its **Xray controls failed on the runner** (positive: probe204) — so the enhanced arm was invalidated by design and its 0 passes are **not a finalmask measurement**. Plain arm, for the record: 9/60 passed (median 304 ms among passes) on the wider A/B candidate draw. Root cause: the Xray control server used a fixed 1 s sleep before the client probed; on a loaded runner the server was not yet listening (the identical control passes locally at ~1 ms). Fix: deterministic readiness — the control now polls the server port (`_wait_port`, 10 s budget) and reports `xray_server_not_ready` distinctly. Readiness is harness proof, not a measurement, so the wait cannot bias the A/B. Tests 53/53; local Xray controls re-verified. The A/B re-runs on this fix; the ship/reject decision is recorded with that run's numbers.
