@@ -1,3 +1,11 @@
+## 2026-11-20 — A/B control root cause: Xray v26 freedom finalrule blackholes loopback
+
+- **Root cause found (three staged diagnostic runs, debug logs):** Xray **v26's freedom outbound blocks private/loopback targets by default** — a `finalrule` SSRF guard that *blackholes* the connection for 90 s instead of refusing it. The loopback control's vless request was received and routed correctly, then blackholed (`target blocked by a finalrule: tcp:127.0.0.1:…, blackholing connection for 1m30s`), so every probe timed out with zero error output — which is why the control passed locally and on Xray v25.12.8 (verified on-runner: its pair returns 204) but hung on v26 in CI. Two earlier theories were tested and eliminated on evidence (startup race — deterministic readiness changed nothing; missing geoip assets — bare-binary pair passes locally). Diagnostic side-discovery: Xray logs to **stdout**, not stderr.
+- **Fix:** the control server's freedom outbound now carries an explicit allow `finalRules` entry (it is a test double whose whole job is dialing a loopback origin). Candidate tunnels are unaffected — our client side never uses freedom, and real servers are not ours to configure. The temporary `diag-xray.yml` workflow is deleted in the same PR. Tests 53/53; control re-verified locally on v26 (1.2 ms).
+- **Standing note for future Xray work:** any self-hosted Xray v26 server that must reach private/loopback targets needs this `finalRules` awareness; the default is a silent 90-second blackhole, not an error.
+
+Agent: Rick
+
 ## 2026-11-20 — Field feedback #4 (mobile): the proven core, confirmed on both networks
 
 - **Per-key mobile/4G results (wolf):** SS 38.121.43.18:19999 → 256 ms (excellent on mobile; failed on ADSL in feedback #3 — network-dependent, exactly as recorded); CF-fronted VMess trio → 276 / 278 / 280 ms (all fast on mobile; ADSL had been 326 ms / ~2.1 s / ~2.1 s); SS CA 149.22.95.183:443 → 1,920 ms (alive, slow on mobile; 392 ms on ADSL); Hysteria2 DE + NL dead on mobile too.

@@ -743,7 +743,21 @@ def run_xray_controls(xray, direct_ip):
                                 "port": server_port,
                                 "settings": {"clients": [{"id": token}],
                                              "decryption": "none"}}],
-                  "outbounds": [{"protocol": "freedom", "tag": "direct"}]}
+                  # Xray v26's freedom outbound blackholes private /
+                  # loopback targets by default (a "finalrule" SSRF
+                  # guard, 90 s blackhole — it silently hung this
+                  # control on CI runners while v25 and local runs
+                  # passed; diagnosed 2026-11-20, diag runs
+                  # 44710508376 / 44710917446 / 44711332653). The
+                  # control server is a test double whose whole job is
+                  # dialing a loopback origin, so it allows explicitly.
+                  # Candidate tunnels never touch freedom on our side;
+                  # this affects nothing but the control.
+                  "outbounds": [{"protocol": "freedom", "tag": "direct",
+                                 "settings": {"finalRules": [
+                                     {"action": "allow",
+                                      "network": "tcp,udp",
+                                      "ip": ["0.0.0.0/0", "::/0"]}]}}]}
     with tempfile.TemporaryDirectory(prefix="mf-ab-control-") as tmp:
         path = os.path.join(tmp, "server.json")
         with open(path, "w", encoding="utf-8") as handle:
