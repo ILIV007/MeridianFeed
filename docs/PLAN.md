@@ -19,6 +19,7 @@ Scope locked by wolf (2026-11-20):
 - Wolf is creating the new Cloudflare account himself (2026-11-20) and will hand it over together with the new Telegram bot token; Rick advances all phases that do not need them in the meantime.
 - New bot created by wolf in BotFather and added as admin to @Proxiv3.
 - Secrets only via Secure Vault / CF secrets / GH Actions secrets. Never in repo or chat.
+- **Status 2026-11-20: COMPLETE.** New Cloudflare account handed over and in use (Workers + KV live); bot @Pool_IVbot created, profile completed, verified admin of @Proxiv3; bot admins with VIP access: the owner's main account + @BLUE_WOLF_03. Repo renamed Pool-v2ray → MeridianFeed (see the naming note at the end).
 
 ## Phase 1 — Source checkup (before any code) — DONE 2026-11-20
 - 11 sources sampled, report at phase1-source-checkup.md (also in repo docs/). Keep: ermaozi/get_subscribe, peasoft/NoMoreWalls, mahdibland/V2RayAggregator (Eternity). Watch: EternityAir, Pawdroid/Free-servers, free-nodes/v2rayfree, mehdirzfx/v2ray-sub. Drop: AutoMergePublicNodes (redundant + 17.3% malformed), barry-far (repo blocked), freefq/free (stale 2024), NiREvil wg feed (WireGuard only, out of scope).
@@ -65,20 +66,24 @@ Known limit: runners are outside Iran — a pass proves the config truly works, 
 - Minimal own VLESS+WS+TLS Worker on the new CF account (written in-house, no upstream project dependency).
 - These are the guaranteed-alive anchors: public posts rotate them, VIP sub always includes them.
 - Watch free-plan limits + abuse risk; anchors are a backbone, not the whole pool.
+- **Status 2026-11-20: BLOCKED on a Cloudflare runtime finding.** The anchor Worker (`worker/meridian-peak/index.js`) is written, but on this account any script whose code references `cloudflare:sockets` returns HTTP 1101 on every route when deployed via the Scripts API (bisected: static import, dynamic import and separate-module variants all fail; identical code without the reference works). The anchor is NOT deployed and NOT in any pool — unverified configs are never published. Open options: deploy via dashboard/wrangler, or a Cloudflare-side fix. KV keys `anchor_uuid` / `node_path` are reserved.
 
 ## Phase 5 — Publisher (new CF Worker)
 - Rebranding rule (wolf, 2026-11-20): every published config is RENAMED to the channel's own name before posting — the remark is display-only (URI `#fragment`, vmess `ps`) and never affects the connection; dedup/verifier keys ignore remarks entirely. Format: `🪼 PROXIV3 · <flag> <country> · <PROTOCOL> · Verified` — the channel's own 🪼 emoji up front (its signature: channel title "🪼PROXIV3", post footer "🪼 @PROXIV3"), the word Verified instead of any real latency figure (wolf, 2026-11-20: no real latency on the names, "Verified" is enough). VIP sub profile-title: `🪼 PROXIV3 VIP`. Renaming happens after verification, at publish time.
 - Cron hourly: read verified pool from KV, post one batch to @Proxiv3 (protocol, country, latency, tested-at, config in a copyable block).
 - VIP sub endpoint: fixed link /sub/<secret> serving the current VIP pool (base64, standard headers) — content refreshed hourly, link never changes. Wrong secret = 404.
 - Cron-only for the old bot token if reused for posting; the publisher never calls setWebhook (protects the old MTProto bot).
+- **Status 2026-11-20: DONE and live.** `meridian-pub` (cron `33 * * * *` UTC, Rich Messages, refuses pools older than 90 min) and `meridian-sub` (`/sub/<secret>` from KV, wrong secret 404, `profile-title` 🪼 PROXIV3 VIP) are deployed on the new account with routes enabled and health/endpoint checks verified live. KV `MERIDIAN_STORE` holds `public_pool` + `vip_sub`, refreshed hourly by the composer from the strict tier intersections. First channel post: https://t.me/Proxiv3/2621 (7 double-pass configs). Tier clocks: run 44623695513 predates verifier v1.1.0's per-pass keys, so intersections start with the v1.1.0 runs 44627118024 / 44628683507 / 44630781473 / 44632829174 / 44634869948 (Gate 3: 112 / 113 / 112 / 111 / 114 passes) — public double-pass intersection 103 keys → 7 published after URI recovery + quotas; VIP triple-pass intersection 45 keys → 6 published.
 
 ## Phase 6 — New VIP bot
 - Own webhook on the new Worker (new bot = no conflict with @Prox_IVbot).
 - Gives the single VIP sub link to VIP users; collects working/dead feedback per config to feed Phase 3 scoring.
+- **Status 2026-11-20: DONE and live.** `meridian-bot` serves the @Pool_IVbot webhook (secret-token header verified against KV): /start, /vip (admins + KV `vip_users` only), /help, works/dead feedback to KV. The VIP link was delivered by the bot to both admin accounts (bot messages 5 and 6 in the respective chats). Webhook registered with zero pending updates and no delivery errors.
 
 ## Phase 7 — Live test, tidy, ship
 - Import tests: v2rayNG, Happ, Streisand — public post configs + VIP sub, on real connections.
 - Full checkup/debug pass, then ship as v1.0.0 via branch + PR + merge, tagged `Agent: Rick`, changelog in repo.
+- **Status 2026-11-20: live-verified server-side** — KV read-backs byte-identical, sub endpoint fetched with a real HTTP client (200 + correct subscription headers + decodable body), first Rich post confirmed in the channel, bot deliveries confirmed by API message ids, publisher cron armed. On-device client imports (v2rayNG/Happ/Streisand) remain a wolf-side spot check; every published config passed a real sing-box tunnel test at least twice (VIP: three times), which is the same connection path those clients use.
 
 Decided (corrected by wolf on 2026-11-20, superseding the earlier `Pool-v2` reading): repo name was `Pool-v2ray`; renamed the same night to the codename `MeridianFeed` under wolf's naming/risk rule (see Naming & risk rules above). Nothing was created under the old name.
 Open items for wolf: new CF account hand-off, new bot token (via Secure Vault), who counts as VIP.
