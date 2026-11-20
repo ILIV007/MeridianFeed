@@ -89,6 +89,17 @@ class ControlsTests(unittest.TestCase):
         self.assertFalse(ir_check.controls_ok(scripted(True, True)))
         self.assertFalse(ir_check.controls_ok(scripted(True, None)))
 
+    def test_controls_retry_recovers_from_transient_hiccup(self):
+        ch = scripted(None, False, True, False)
+        self.assertTrue(ir_check.controls_ok(ch))
+        self.assertEqual(ir_check.LAST_CONTROLS["attempts"], 2)
+        self.assertIs(ir_check.LAST_CONTROLS["positive"], True)
+        self.assertIs(ir_check.LAST_CONTROLS["negative"], False)
+
+    def test_controls_stay_failed_after_both_attempts(self):
+        self.assertFalse(ir_check.controls_ok(scripted(None, None)))
+        self.assertEqual(ir_check.LAST_CONTROLS["attempts"], 2)
+
 
 class AnnotateTests(unittest.TestCase):
     def test_failed_controls_make_everything_neutral(self):
@@ -98,6 +109,16 @@ class AnnotateTests(unittest.TestCase):
         self.assertEqual(stage, "neutral_controls")
         self.assertEqual(verdicts, {"k1": None, "k2": None})
         self.assertEqual(counts["neutral"], 2)
+        self.assertIn("controls", counts)
+
+    def test_counts_carry_control_verdicts(self):
+        targets = {"k1": ("203.0.113.7", 443)}
+        ch = scripted(True, False, True)  # controls pair, then verdict
+        verdicts, stage, counts = ir_check.annotate(
+            targets, ch=ch, gp=scripted())
+        self.assertEqual(stage, "ok")
+        self.assertEqual(counts["controls"]["attempts"], 1)
+        self.assertIs(counts["controls"]["positive"], True)
 
     def test_verdicts_cached_per_endpoint(self):
         # Endpoint probes in order: same.example succeeds at once;

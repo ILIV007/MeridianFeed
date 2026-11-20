@@ -198,15 +198,28 @@ def endpoint_verdict(host, port, ch=probe_check_host, gp=probe_globalping):
     return None
 
 
+LAST_CONTROLS = {"attempts": 0, "positive": None, "negative": None}
+
+
 def controls_ok(ch=probe_check_host):
     """Positive control must be reachable from Tehran, negative must
     fail. Any other outcome means the checker itself is untrustworthy
-    this run and the stage must go neutral."""
-    positive = ch(*POSITIVE_CONTROL)
-    if positive is not True:
-        return False
-    negative = ch(*NEGATIVE_CONTROL)
-    return negative is False
+    this run and the stage must go neutral. The pair is attempted
+    twice: one transient API hiccup on a shared runner egress IP must
+    not neutralise the whole stage (the first live cycle, run
+    44721173582, went neutral_controls with no diagnosable trace —
+    LAST_CONTROLS now records the verdicts into the run stats)."""
+    LAST_CONTROLS.update({"attempts": 0, "positive": None,
+                          "negative": None})
+    for _ in range(2):
+        positive = ch(*POSITIVE_CONTROL)
+        negative = ch(*NEGATIVE_CONTROL)
+        LAST_CONTROLS.update({"attempts": LAST_CONTROLS["attempts"] + 1,
+                              "positive": positive,
+                              "negative": negative})
+        if positive is True and negative is False:
+            return True
+    return False
 
 
 def annotate(targets, budget_s=DEFAULT_BUDGET_S, workers=DEFAULT_WORKERS,
@@ -231,6 +244,7 @@ def annotate(targets, budget_s=DEFAULT_BUDGET_S, workers=DEFAULT_WORKERS,
     if not ok:
         counts["endpoints"] = len({ep for ep in targets.values()})
         counts["neutral"] = counts["endpoints"]
+        counts["controls"] = dict(LAST_CONTROLS)
         return verdicts, "neutral_controls", counts
     endpoints = {}
     for key, endpoint in targets.items():
@@ -256,7 +270,9 @@ def annotate(targets, budget_s=DEFAULT_BUDGET_S, workers=DEFAULT_WORKERS,
                 for key in endpoints[endpoint]:
                     verdicts[key] = verdict
     except Exception:
+        counts["controls"] = dict(LAST_CONTROLS)
         return {key: None for key in targets}, "neutral_error", counts
+    counts["controls"] = dict(LAST_CONTROLS)
     return verdicts, "ok", counts
 
 
