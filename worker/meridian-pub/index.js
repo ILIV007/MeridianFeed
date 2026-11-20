@@ -1,5 +1,7 @@
 // meridian-pub — hourly publisher for the verified pool (MeridianFeed).
-// Cron 33 * * * *: read the verified public pool from KV and post ONE
+// Cron 3 * * * * UTC = :33 Tehran (corrected 2026-11-20 — the
+// original 33 * * * * UTC landed posts at :03 Tehran): read the
+// verified public pool from KV and post ONE
 // Rich Message batch to the channel. Nothing is posted when the pool is
 // missing or stale (>90 min) — quality over quantity, always.
 // fetch(): health only. Posting uses the TELEGRAM_TOKEN Worker secret.
