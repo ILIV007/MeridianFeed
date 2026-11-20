@@ -133,5 +133,67 @@ class UriMapTests(unittest.TestCase):
             self.assertEqual(len(key), 64)
 
 
+class FinalmaskTests(unittest.TestCase):
+    """Plan Rev.2 R2: the Xray finalmask outbound builder. Synthetic
+    fixtures only — the live A/B runs on Actions."""
+
+    VLESS_WS = ("vless://%s@edge.example.com:443?encryption=none"
+                "&security=tls&sni=edge.example.com&type=ws"
+                "&host=cdn.example.com&path=%%2Fws#x" % UUID)
+    TROJAN_WS = ("trojan://secretpw@tr.example.com:8443?security=tls"
+                 "&sni=tr.example.com&type=ws&path=%%2Ftj#x")
+
+    def test_preset_is_the_universal_double_fragment(self):
+        masks = verifier.FINALMASK_TCP
+        self.assertEqual(len(masks), 2)
+        self.assertTrue(all(m["type"] == "fragment" for m in masks))
+        self.assertEqual(masks[0]["settings"]["packets"], "tlshello")
+        self.assertEqual(masks[0]["settings"]["lengths"], ["0", "104", "1"])
+        self.assertEqual(masks[0]["settings"]["delays"], ["0"])
+        self.assertEqual(masks[0]["settings"]["maxSplit"], "0")
+        self.assertEqual(masks[1]["settings"]["packets"], "1-1")
+        self.assertEqual(masks[1]["settings"]["lengths"], ["114", "1"])
+        self.assertEqual(masks[1]["settings"]["delays"], ["1"])
+        self.assertEqual(masks[1]["settings"]["maxSplit"], "11")
+
+    def test_vless_ws_tls_outbound(self):
+        out = verifier.build_xray_outbound(self.VLESS_WS)
+        self.assertEqual(out["protocol"], "vless")
+        vnext = out["settings"]["vnext"][0]
+        self.assertEqual(vnext["address"], "edge.example.com")
+        self.assertEqual(vnext["port"], 443)
+        self.assertEqual(vnext["users"][0]["id"], UUID)
+        stream = out["streamSettings"]
+        self.assertEqual(stream["network"], "ws")
+        self.assertEqual(stream["security"], "tls")
+        self.assertEqual(stream["tlsSettings"]["serverName"],
+                         "edge.example.com")
+        self.assertEqual(stream["tlsSettings"]["fingerprint"], "unsafe")
+        self.assertEqual(stream["finalmask"],
+                         {"tcp": verifier.FINALMASK_TCP})
+        self.assertEqual(stream["wsSettings"]["path"], "/ws")
+        self.assertEqual(stream["wsSettings"]["headers"]["Host"],
+                         "cdn.example.com")
+
+    def test_trojan_outbound(self):
+        out = verifier.build_xray_outbound(self.TROJAN_WS)
+        self.assertEqual(out["protocol"], "trojan")
+        server = out["settings"]["servers"][0]
+        self.assertEqual(server["address"], "tr.example.com")
+        self.assertEqual(server["port"], 8443)
+        self.assertEqual(server["password"], "secretpw")
+        self.assertIn("finalmask", out["streamSettings"])
+
+    def test_out_of_scope_returns_none(self):
+        reality = ("vless://%s@203.0.113.10:443?security=reality"
+                   "&sni=example.com#x" % UUID)
+        self.assertIsNone(verifier.build_xray_outbound(reality))
+        plain = "vless://%s@203.0.113.10:443?security=none#x" % UUID
+        self.assertIsNone(verifier.build_xray_outbound(plain))
+        for uri in FIXTURES.values():
+            if uri.startswith(("ss://", "hysteria2://", "tuic://")):
+                self.assertIsNone(verifier.build_xray_outbound(uri))
+
+
 if __name__ == "__main__":
     unittest.main()
