@@ -49,6 +49,10 @@ USER_AGENT = "MeridianFeed-GateIR/1.0 (+https://github.com/ILIV007/MeridianFeed)
 
 POSITIVE_CONTROL = ("1.1.1.1", 443)      # Cloudflare anycast, must pass
 NEGATIVE_CONTROL = ("192.0.2.1", 443)    # TEST-NET-1 reserved, must fail
+# Globalping rejects unroutable targets at creation (HTTP 400,
+# verified live 2026-11-20), so its must-fail control is a dead port
+# on the same anycast host instead — same intent, creatable target.
+GP_NEGATIVE_CONTROL = ("1.1.1.1", 59999)
 
 # The composer's VIP floors (compose.py VIP_LAT / VIP_SPD): Gate-IR
 # only spends API calls on passes that meet them.
@@ -233,7 +237,7 @@ def controls_ok(ch=probe_check_host, gp=probe_globalping):
     if saw_verdict:
         return False
     positive = gp(*POSITIVE_CONTROL)
-    negative = gp(*NEGATIVE_CONTROL)
+    negative = gp(*GP_NEGATIVE_CONTROL)
     LAST_CONTROLS.update({"positive": positive, "negative": negative,
                           "via": "globalping"})
     return positive is True and negative is False

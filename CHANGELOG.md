@@ -1,3 +1,10 @@
+## 2026-11-20 — Gate-IR controls: Globalping negative control fixed (dead port)
+
+- Third live cycle (run 44725109733): the Globalping fallback engaged (`via: globalping`) and its positive control passed from the runner — but the negative control returned null, so the stage stayed neutral. Root cause, verified live: Globalping rejects unroutable targets at measurement creation (HTTP 400 for 192.0.2.1), so the TEST-NET negative can never produce a verdict through that API.
+- **Fix:** the Globalping control pair uses a dead port on the same anycast host (`1.1.1.1:59999`) as its must-fail control — same intent, a creatable target. Verified live from the sandbox before shipping: positive `1.1.1.1:443` → True, negative `1.1.1.1:59999` → False. The check-host pair keeps the TEST-NET negative (that API accepts it). Test added asserting the fallback uses the dead-port negative.
+
+Agent: Rick
+
 ## 2026-11-20 — Gate-IR controls: Globalping fallback when check-host is silent
 
 - Second live cycle (run 44723601784) again landed `neutral_controls` — and the new stats diagnostics showed why: both control attempts returned null/null from the Actions runner (the check-host API produces no verdict at all from the shared runner egress; Gate-3 itself stayed healthy, 136 passes). The stage's fail-open held again (VIP composed 1/6/1 across tiers via the field-verified override + fills, rescue_count 2).
