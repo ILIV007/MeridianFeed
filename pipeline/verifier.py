@@ -1066,7 +1066,7 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers,
         stats["ir_stage"] = "disabled"
         stats["ir_counts"] = {"endpoints": 0, "reachable": 0,
                               "unreachable": 0, "neutral": 0}
-        ir_verdicts = {}
+        ir_verdicts, ir_latencies = {}, {}
     else:
         try:
             ir_verdicts, ir_stage, ir_counts = ir_check.annotate(ir_targets)
@@ -1074,8 +1074,19 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers,
             ir_verdicts, ir_stage, ir_counts = {}, "neutral_error", {}
         stats["ir_stage"] = ir_stage
         stats["ir_counts"] = ir_counts
+        # Iran-side ping latency (field iteration 3): a composer
+        # RANKING signal only — measured for the same VIP-floor
+        # targets, missing values stay null (neutral), and a failure
+        # here can never touch the reachability verdicts above.
+        try:
+            ir_latencies = ir_check.annotate_with_latency(ir_targets)
+        except Exception:
+            ir_latencies = {}
+        measured = sum(1 for v in ir_latencies.values() if v is not None)
+        stats["ir_counts"]["latency_measured"] = measured
     for record in pass_records:
         record["ir_reachable"] = ir_verdicts.get(record["key_hash"])
+        record["ir_latency_ms"] = ir_latencies.get(record["key_hash"])
     return stats
 
 
