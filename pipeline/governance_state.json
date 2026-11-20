@@ -1,0 +1,86 @@
+{
+ "seeded": "2026-11-20 Plan Rev.2 R0 \u2014 first history entry per incumbent is the unique_new of the 2026-11-20 ~08:25Z live collect (registry order attribution). Governance arms from here; a source needs ZERO_ROUNDS=6 zero samples before auto-disable can fire. Agent: Rick",
+ "sources": {
+  "NoMoreWalls": {
+   "disabled": false,
+   "disabled_reason": null,
+   "disabled_ts": null,
+   "lifetime_unique": 37,
+   "unique_history": [
+    19,
+    18
+   ]
+  },
+  "bahemmat-collector": {
+   "disabled": false,
+   "disabled_reason": null,
+   "disabled_ts": null,
+   "lifetime_unique": 972,
+   "unique_history": [
+    489,
+    483
+   ]
+  },
+  "ermaozi": {
+   "disabled": false,
+   "disabled_reason": null,
+   "disabled_ts": null,
+   "lifetime_unique": 786,
+   "unique_history": [
+    395,
+    391
+   ]
+  },
+  "mahdibland-eternity": {
+   "disabled": false,
+   "disabled_reason": null,
+   "disabled_ts": null,
+   "lifetime_unique": 224,
+   "unique_history": [
+    112,
+    112
+   ]
+  },
+  "outline_vpn": {
+   "disabled": false,
+   "disabled_reason": null,
+   "disabled_ts": null,
+   "lifetime_unique": 188,
+   "unique_history": [
+    94,
+    94
+   ]
+  },
+  "pulseproxy": {
+   "disabled": false,
+   "disabled_reason": null,
+   "disabled_ts": null,
+   "lifetime_unique": 1459,
+   "unique_history": [
+    726,
+    733
+   ]
+  },
+  "radikal-verified": {
+   "disabled": false,
+   "disabled_reason": null,
+   "disabled_ts": null,
+   "lifetime_unique": 377,
+   "unique_history": [
+    377
+   ]
+  },
+  "surfboardv2ray": {
+   "disabled": false,
+   "disabled_reason": null,
+   "disabled_ts": null,
+   "lifetime_unique": 50,
+   "unique_history": [
+    24,
+    26
+   ]
+  }
+ },
+ "updated_ts": 1795163624.3515558,
+ "version": 1
+}

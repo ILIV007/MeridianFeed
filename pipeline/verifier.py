@@ -90,10 +90,20 @@ def collect_candidates(registry_path, limit):
     """
     with open(registry_path, encoding="utf-8") as handle:
         registry = json.load(handle)
-    seen = {}
+    seen, seen_identity = {}, {}
     per_source = []
-    fetched = valid = 0
+    fetched = valid = identity_dups = shape_rejected = 0
     sources = [s for s in registry.get("sources", []) if s.get("enabled", True)]
+    # Source governance (Plan Rev.2 R1): skip auto-disabled sources.
+    try:
+        import governance
+        gov_path = os.path.join(os.path.dirname(
+            os.path.abspath(registry_path)), "governance_state.json")
+        if os.path.exists(gov_path):
+            disabled = governance.disabled_names(governance.load(gov_path))
+            sources = [s for s in sources if s["name"] not in disabled]
+    except Exception:
+        pass
     random.shuffle(sources)  # spread politely: no fixed hammering order
     for source in sources:
         try:
@@ -109,9 +119,20 @@ def collect_candidates(registry_path, limit):
                 if record is None:
                     continue
                 valid += 1
+                if collector.cf_shape_reject(record, uri) is not None:
+                    shape_rejected += 1
+                    continue
                 key = collector.dedup_key(record)
                 if key in seen:
                     continue
+                ident = collector.identity_key(record, uri)
+                if ident in seen_identity:
+                    # Same origin service under another presentation:
+                    # one candidate per service (R1 identity dedup) —
+                    # Gate-3 budget is spent on services, not copies.
+                    identity_dups += 1
+                    continue
+                seen_identity[ident] = key
                 seen[key] = (record, uri)
                 entries.append((record, uri))
                 # CF presentation variants enter as ordinary
@@ -137,7 +158,9 @@ def collect_candidates(registry_path, limit):
             break
         idx += 1
     totals = {"fetched": fetched, "gate1_valid": valid,
-              "unique": len(seen), "sampled": len(sample)}
+              "unique": len(seen), "sampled": len(sample),
+              "identity_duplicates": identity_dups,
+              "shape_rejected": shape_rejected}
     return sample, totals
 
 

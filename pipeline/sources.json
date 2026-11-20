@@ -62,6 +62,15 @@
    "type": "github-raw",
    "url": "https://raw.githubusercontent.com/MohammadBahemmat/V2ray-Collector/main/all_servers.txt",
    "volatility": "volatile"
+  },
+  {
+   "enabled": true,
+   "facet": "aggregator-verified",
+   "name": "radikal-verified",
+   "notes": "Plan Rev.2 R1 (wolf's order, 2026-11-20): 0xRadikal/Free-v2ray-Configs verified tier as a flagged upstream. VERIFIED-CORPUS class, not a list: the file is a rotating freshly-verified set (exact-key persistence 0.572 @24h, R0) — that figure does NOT make its configs trusted; every config re-enters the full Gate 1-3 pipeline, pinning and tier rules, and its ordering is never inherited (fronting-first re-ranking is mandatory). Known biases to counter at composition: REALITY/TCP-heavy (WS ~6%), port 443 ~42%, ~37% US. Never ingest its all/ tier (~87% dead/flaky). Yield and Gate-3 contribution are tracked by governance (R1) and the weekly survival audit (Phase D).",
+   "type": "github-raw",
+   "url": "https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/verified/configs.txt",
+   "volatility": "volatile"
   }
  ]
 }
