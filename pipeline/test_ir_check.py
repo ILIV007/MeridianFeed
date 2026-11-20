@@ -106,6 +106,10 @@ class ControlsTests(unittest.TestCase):
         gp = scripted(True, False)
         self.assertTrue(ir_check.controls_ok(scripted(None, None), gp=gp))
         self.assertEqual(ir_check.LAST_CONTROLS["via"], "globalping")
+        # Globalping cannot create measurements for unroutable
+        # targets, so its negative control is the dead-port variant.
+        self.assertEqual(gp.calls[0], ir_check.POSITIVE_CONTROL)
+        self.assertEqual(gp.calls[1], ir_check.GP_NEGATIVE_CONTROL)
 
     def test_globalping_controls_must_also_behave(self):
         self.assertFalse(ir_check.controls_ok(
