@@ -254,3 +254,12 @@ Agent: Rick
 **First live cycle (2026-11-20, outcome):** recompose on pre-merge runs (composer rules new): funnel 2,646 unique -> 135 Gate-3 passed (latest run) -> core 40 -> profile gate refused 37 at Tier 1 -> 3 survivors all IR-neutral -> Tier 1 served 0; T2 +1, T3 +5, ceiling dropped 2, **ceiling escape +4** -> **VIP 8 served** (CA SS x2, US SS x5, US VMess x1; all :443; profile share 1.0; US 75% under the logged escape), both sub routes byte-identical, rescue 1, public 5. First verifier-1.3.0 run (44779269275): fetched 4,336 -> sampled 878 (all 578 profile candidates + 300 other) -> Gate-3 168 (50 profile); verify step ~28 min, composer JIT wait raised to 40 min. **Gate-IR neutral rate did not improve (71/74 = 96% vs 87% baseline)** — check-host is mute from the runner egress regardless of node count and Globalping verdicts stay sparse; the RIPE Atlas key (census 89 IR probes recorded) is the critical unlock for Tier 1 and is the one open item for wolf. (PR #27 was an empty merge — its docs edit failed locally before writing; the outcome lands in the follow-up PR.)
 
 Agent: Rick
+
+## GATE-IR WITHOUT ATLAS — 2026-11-20 ~22:00 Tehran (Agent: Rick)
+
+- **Wolf reported the RIPE Atlas API key "didn't work out".** The Atlas open item above is CLOSED — do not re-ask him for a key.
+- **Gate-IR proceeds WITHOUT Atlas:** verdicts come from check-host (4 Iranian nodes per request, ≥2 agreeing failures to condemn) + Globalping (up to 3 IR probes) only, under the unchanged confirmed-fail + controls/fail-open discipline. The Atlas code path stays dormant (census of 89 IR probes recorded in `ir_counts`); it activates only if a key ever appears on the runner, which is no longer expected.
+- Consequence, accepted by design: Tier 1 stays thin while IR verdicts are mostly neutral — the floor is carried by Tiers 2/3 + the ceiling escape under the profile gate, exactly as in the first corrected-programme cycle.
+- **Field feedback remains the primary Iran ground truth** (wolf's own tests + bot works/dead reports), ahead of any API vantage.
+
+Agent: Rick
