@@ -1,3 +1,12 @@
+## 2026-11-20 — Morning checkup: composer dispatch-loop fixed, hourly posts restored
+
+- **Found by the morning checkup:** after the 03:28Z pool compose, the hourly composer never composed again — every :25 tick saw the newest verify run ~60 min old (>50 min threshold), dispatched a fresh run and exited, and the next tick did the same. meridian-pub's 90-min staleness guard correctly skipped the 05:33Z post (no stale post was sent). Root cause: the design relied on the verify workflow's own `17 * * * *` schedule to keep a fresh run for the tick, but that schedule fired only once in 8 hours (03:15Z run 44666517313).
+- **Fix (`compose_hourly.py`, local composer):** after dispatching, the composer now waits for the dispatched run to complete (poll ≤20 min) and composes in the same tick; if the run does not complete in time it falls back to dispatch-only and the next tick retries. Strict verification rules unchanged — same 5-run intersection, same double/triple-pass tiers, same quotas.
+- **Recovery, verified live:** pool recomposed manually (12 public / 6 VIP from runs incl. 44680920036); the 06:33Z post fired (message 2672). Latest Gate 3 passes per run: 96–118 (runs 44653507191–44687679033, all controls OK). VIP sub verified live (200, 6 configs; wrong secret 404). Bot webhook accepts authenticated updates (synthetic /start → 200 ok; wrong secret → 403).
+- **Still open:** GitHub's `:17` schedule unreliability (watch — the composer no longer depends on it); Phase 4 anchor still blocked (HTTP 1101 on `cloudflare:sockets`, needs wolf's call); first real admin /start over the webhook is still the final live proof of Telegram→worker delivery.
+
+Agent: Rick
+
 ## 2026-11-20 — Phases 4–6 built; FIRST POST LIVE in @Proxiv3; VIP sub delivered
 
 - **Verify runs (verifier v1.1.0):** five dispatch runs with controls OK — 44627118024 (Gate 3: 112 passes, 93 public-single), 44628683507 (113, 93), 44630781473 (112, 93), 44632829174 (111, 91), 44634869948 (114, 95). Run 44623695513 predates v1.1.0 per-pass keys, so tier intersections start with these runs (documented in the v1.1.0 entry below).
