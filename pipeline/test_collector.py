@@ -334,5 +334,50 @@ class CfShapeRejectTests(unittest.TestCase):
         self.assertIsNone(collector.cf_shape_reject(rec, uri))
 
 
+class FrontClassTests(unittest.TestCase):
+    """collector.front_class — the shared survival-class definition
+    (mirrors compose.classify_uri; the two must never drift)."""
+
+    def fc(self, uri):
+        record = collector.parse_uri(uri, "test")
+        self.assertIsNotNone(record, uri)
+        return collector.front_class(record, uri)
+
+    def test_cf_ip_ws_tls_is_class_0(self):
+        self.assertEqual(self.fc(
+            "vless://u@172.67.190.164:443?type=ws&security=tls"
+            "&sni=a.example#x"), 0)
+
+    def test_domain_ws_tls_is_class_1(self):
+        self.assertEqual(self.fc(
+            "vless://u@cdn.example.com:443?type=ws&security=tls"
+            "&sni=a.example#x"), 1)
+
+    def test_plain_ss_is_class_2(self):
+        self.assertEqual(self.fc(
+            "ss://YWVzLTI1Ni1nY206cA@203.0.113.9:443#x"), 2)
+
+    def test_ss_with_tls_plugin_is_not_plain(self):
+        self.assertNotEqual(self.fc(
+            "ss://YWVzLTI1Ni1nY206cA@203.0.113.9:443"
+            "?plugin=v2ray-plugin%3Bmode%3Dwebsocket%3Btls#x"), 2)
+
+    def test_reality_with_and_without_sni(self):
+        self.assertEqual(self.fc(
+            "vless://u@203.0.113.9:443?type=tcp&security=reality"
+            "&sni=www.example.com#x"), 3)
+        self.assertEqual(self.fc(
+            "vless://u@203.0.113.9:443?type=tcp&security=reality#x"), 4)
+
+    def test_hysteria2_is_class_5(self):
+        self.assertEqual(self.fc("hy2://p@203.0.113.9:443#x"), 5)
+
+    def test_garbage_never_crashes(self):
+        record = {"protocol": "vless", "server": "not a host",
+                  "port": "f5b4:88:105:1c00:eaff:fe00:3e1:61022"}
+        self.assertEqual(collector.front_class(record, "vless://@@@"),
+                         5)
+
+
 if __name__ == "__main__":
     unittest.main()

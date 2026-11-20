@@ -131,6 +131,53 @@ def cf_fronted(record, uri):
     return False
 
 
+def front_class(record, uri):
+    """Survival class of a config (field-measured order, wolf's field
+    tests 2026-11-20): 0 CF-anycast-IP WS+TLS, 1 domain WS+TLS
+    (CDN-fronted), 2 plain Shadowsocks (no TLS layer), 3 REALITY
+    with SNI, 4 REALITY without SNI, 5 everything else (bare
+    direct-IP TLS, Hysteria2/UDP — the classes that died wholesale
+    in the field). Lower survives better. This is the shared
+    definition: the composer carries the same logic over raw URIs
+    (compose.classify_uri) and the two must never drift. Crash-safe:
+    any parse surprise yields class 5, never an exception."""
+    try:
+        protocol = record["protocol"]
+        port = record["port"]
+        transport, security, sni, host_header, _ = _uri_extras(uri)
+        if protocol == "vmess":
+            sni_eff = sni or host_header
+        else:
+            sni_eff = sni
+        if protocol == "ss":
+            from urllib.parse import urlparse, parse_qs
+            plugin = (parse_qs(urlparse(uri).query).get("plugin")
+                      or [""])[0].lower()
+            if "tls" in plugin:  # v2ray-plugin style: not plain SS
+                security = "tls"
+                transport = "ws"
+        server = record["server"] or ""
+        try:
+            ipaddress.ip_address(server)
+            is_ip = True
+        except ValueError:
+            is_ip = False
+        cf = bool(is_ip and _in_cf(server))
+        if transport == "ws" and security == "tls" and cf:
+            return 0
+        if transport == "ws" and security == "tls" and not is_ip:
+            return 1
+        if protocol == "ss" and security != "tls":
+            return 2
+        if security == "reality" and sni_eff:
+            return 3
+        if security == "reality":
+            return 4
+        return 5
+    except Exception:
+        return 5
+
+
 def _swap_vmess_add(uri, new_host):
     decoded = b64decode_loose(uri.split("://", 1)[1].split("#", 1)[0]
                               .split("?", 1)[0])
