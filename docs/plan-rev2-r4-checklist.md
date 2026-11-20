@@ -66,5 +66,11 @@ set first, then work this list top to bottom.
 - [ ] After merge, watch the next two hourly composes: report pool
       sizes and the non-US eligible supply movement (the constraint
       R4 exists to relieve) in the survival log entry.
+- [ ] Judge every adoption by wolf's quality bar (field feedback #4,
+      2026-11-20 — "this is the quality we want"): report how many
+      NEW Gate-3-passing keys from the adopted sources match the
+      proven profile (CF-fronted WS variants + field-proven SS
+      classes) per cycle, alongside the raw yield. Raw count alone
+      is not the success metric.
 
 — Agent: Rick
