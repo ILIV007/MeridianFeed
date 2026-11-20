@@ -239,5 +239,100 @@ class VariantTests(unittest.TestCase):
         self.assertEqual(len(collector.expand_cf_variants(rec, ss)), 1)
 
 
+def vmess_ws_tls_port(host, port, sni="front.example.com", uid=UUID,
+                      path="/hls/x.m3u8"):
+    payload = {"v": "2", "ps": "fixture", "add": host, "port": port,
+               "id": uid, "aid": "0", "net": "ws", "type": "none",
+               "host": sni, "path": path, "tls": "tls", "sni": sni}
+    return "vmess://" + base64.b64encode(
+        json.dumps(payload).encode()).decode()
+
+
+def collect_body(body, name="fixture-source"):
+    """Run collect_source over an in-memory body (fetch stubbed)."""
+    source = {"name": name, "url": "https://example.invalid/sub",
+              "facet": "test", "type": "sub"}
+    seen, seen_identity = {}, {}
+    with unittest.mock.patch.object(collector, "fetch",
+                                    lambda url: body.encode()):
+        stats = collector.collect_source(source, seen, seen_identity)
+    return stats, seen
+
+
+class IdentityDedupTests(unittest.TestCase):
+    """Plan Rev.2 R1: CDN-aware identity — one candidate per origin
+    service, however many edge addresses the sources print for it."""
+
+    def test_same_service_two_cf_ips_collapses(self):
+        body = "\n".join([vmess_ws_tls("172.64.145.93"),
+                          vmess_ws_tls("104.18.10.10")])
+        stats, seen = collect_body(body)
+        self.assertEqual(stats["unique_new"], 1)
+        self.assertEqual(stats["identity_duplicates"], 1)
+        # the survivor still expands into deliberate presentations
+        self.assertEqual(stats["variants"], collector.MAX_CF_VARIANTS)
+
+    def test_cf_alt_port_is_same_service(self):
+        body = "\n".join([vmess_ws_tls_port("172.64.145.93", "443"),
+                          vmess_ws_tls_port("104.18.10.10", "2053")])
+        stats, _ = collect_body(body)
+        self.assertEqual(stats["unique_new"], 1)
+        self.assertEqual(stats["identity_duplicates"], 1)
+
+    def test_distinct_services_on_one_front_do_not_collapse(self):
+        body = "\n".join([
+            vmess_ws_tls("172.64.145.93", uid=UUID),
+            vmess_ws_tls("104.18.10.10", uid=UUID2),
+            vmess_ws_tls_port("104.18.10.11", "443", path="/other")])
+        stats, _ = collect_body(body)
+        self.assertEqual(stats["unique_new"], 3)
+        self.assertEqual(stats["identity_duplicates"], 0)
+
+    def test_non_fronted_identity_is_dedup_key(self):
+        rec = collector.parse_uri(
+            "vless://%s@n.example.com:443#x" % UUID)
+        self.assertEqual(collector.identity_key(rec, "vless://%s@"
+                         "n.example.com:443#x" % UUID),
+                         "key|" + collector.dedup_key(rec))
+
+
+class CfShapeRejectTests(unittest.TestCase):
+    """Plan Rev.2 R3: CF-edge shape drops (patterniha transform)."""
+
+    def test_plaintext_443_on_cf_ip_rejected(self):
+        uri = "vless://%s@172.64.145.93:443?type=ws#x" % UUID
+        rec = collector.parse_uri(uri)
+        self.assertEqual(collector.cf_shape_reject(rec, uri),
+                         "cf_plaintext_443")
+
+    def test_tls_8080_on_cf_ip_rejected(self):
+        uri = ("vless://%s@172.64.145.93:8080?type=ws&security=tls#x"
+               % UUID)
+        rec = collector.parse_uri(uri)
+        self.assertEqual(collector.cf_shape_reject(rec, uri),
+                         "cf_tls_8080")
+
+    def test_tls_443_on_cf_ip_kept(self):
+        uri = ("vless://%s@172.64.145.93:443?type=ws&security=tls#x"
+               % UUID)
+        rec = collector.parse_uri(uri)
+        self.assertIsNone(collector.cf_shape_reject(rec, uri))
+
+    def test_trojan_443_without_security_param_kept(self):
+        uri = "trojan://s3cret-pw@172.64.145.93:443#x"
+        rec = collector.parse_uri(uri)
+        self.assertIsNone(collector.cf_shape_reject(rec, uri))
+
+    def test_non_cf_plaintext_443_kept(self):
+        uri = "vless://%s@203.0.113.10:443?type=ws#x" % UUID
+        rec = collector.parse_uri(uri)
+        self.assertIsNone(collector.cf_shape_reject(rec, uri))
+
+    def test_ss_exempt(self):
+        uri = "ss://aes-256-gcm:passw0rd@172.64.145.93:443#x"
+        rec = collector.parse_uri(uri)
+        self.assertIsNone(collector.cf_shape_reject(rec, uri))
+
+
 if __name__ == "__main__":
     unittest.main()

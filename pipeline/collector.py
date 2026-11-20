@@ -48,6 +48,11 @@ CF_NETS = [ipaddress.ip_network(n) for n in (
 CF_VARIANT_IPS = ("172.64.145.93", "188.114.99.137",
                   "172.67.190.164", "104.18.42.163")
 MAX_CF_VARIANTS = 3
+# Cloudflare HTTPS listener ports: a CF-fronted service answers on all
+# of them, so at IDENTITY level they are one service (Plan Rev.2 R3 —
+# normalisation applies to identity only; the served/tested URI keeps
+# its real port, and composition keeps its field-derived port policy).
+CF_HTTPS_PORTS = {443, 2053, 2083, 2087, 2096, 8443}
 
 _resolve_cache = {}
 
@@ -194,6 +199,73 @@ def service_key(record, uri):
 def service_key_from_uri(uri):
     record = parse_uri(uri, "")
     return service_key(record, uri) if record else None
+
+
+def identity_key(record, uri):
+    """CDN-aware collection identity (Plan Rev.2 R1 — the approach of
+    Radikal core.py's dedup_key and patterniha's Node.identity(),
+    reimplemented in-house): two listings are the same CANDIDATE when
+    they name the same origin service, even if different sources print
+    different edge addresses for it.
+
+    For a Cloudflare-fronted config the raw address is a presentation,
+    not the service: identity = protocol + credential + front identity
+    (SNI/Host) + path, with the port normalised across the Cloudflare
+    HTTPS listener set (R3: those ports all reach the same service).
+    The deliberate presentations are regenerated afterwards by
+    expand_cf_variants from the surviving representative — capped and
+    independently gated — instead of being collected as accidents.
+    For anything not CF-fronted, identity is exactly the dedup key,
+    so behaviour there is unchanged. Distinct services sharing a
+    fronting domain still differ by credential and path."""
+    if cf_fronted(record, uri):
+        _, _, sni, host_header, path = _uri_extras(uri)
+        front = (sni or host_header or record["server"]).lower()
+        port = record["port"]
+        if port in CF_HTTPS_PORTS:
+            port = 443
+        return "svc|" + hashlib.sha256("|".join((
+            record["protocol"], record["credential_hash"], str(port),
+            front, path)).encode("utf-8")).hexdigest()
+    return "key|" + dedup_key(record)
+
+
+def _cf_addressed(record, uri):
+    """True when the connect address itself rides the Cloudflare edge
+    (anycast IP literal, or a domain — address, SNI or Host — that
+    resolves into CF ranges), regardless of transport/security."""
+    if _in_cf(record["server"]):
+        return True
+    _, _, sni, host_header, _ = _uri_extras(uri)
+    for domain in (sni, host_header, record["server"]):
+        if domain and not _in_cf(domain):  # a domain, not an IP literal
+            if any(_in_cf(ip) for ip in _resolve_ips(domain)):
+                return True
+    return False
+
+
+def cf_shape_reject(record, uri):
+    """Gate-1.5 shape drops for Cloudflare-addressed nodes (Plan Rev.2
+    R3, patterniha transform): returns a reason string or None.
+
+    - plaintext on 443: the CF edge's 443 listener is TLS-only, so a
+      no-TLS vless/vmess addressed at the edge on 443 can never
+      handshake — it only burns Gate-2/3 budget. (Trojan is exempt:
+      it is TLS by definition and often omits the security param.)
+    - TLS on 8080: 8080 is the edge's plaintext-HTTP listener; a TLS
+      config pointed there is the same class of misprint."""
+    if record["protocol"] not in ("vless", "vmess", "trojan"):
+        return None
+    _, security, _, _, _ = _uri_extras(uri)
+    if record["protocol"] == "trojan":
+        security = "tls"  # TLS by definition; param often omitted
+    if not _cf_addressed(record, uri):
+        return None
+    if record["port"] == 443 and security != "tls":
+        return "cf_plaintext_443"
+    if record["port"] == 8080 and security == "tls":
+        return "cf_tls_8080"
+    return None
 
 
 def b64decode_loose(text):
@@ -402,11 +474,14 @@ def fetch(url):
     return body
 
 
-def collect_source(source, seen):
+def collect_source(source, seen, seen_identity=None):
+    if seen_identity is None:
+        seen_identity = {}
     stats = {"name": source["name"], "facet": source.get("facet", ""),
              "type": source.get("type", ""), "url": source["url"],
              "ok": False, "error": None, "fetched_bytes": 0, "fetched": 0,
              "valid": 0, "rejected": 0, "duplicates": 0, "unique_new": 0,
+             "identity_duplicates": 0, "shape_rejected": 0,
              "variants": 0, "unique_hosts": 0, "protocols": {}}
     try:
         raw = fetch(source["url"])
@@ -428,10 +503,20 @@ def collect_source(source, seen):
         stats["valid"] += 1
         stats["protocols"][record["protocol"]] = \
             stats["protocols"].get(record["protocol"], 0) + 1
+        if cf_shape_reject(record, uri) is not None:
+            stats["shape_rejected"] += 1
+            continue
         key = dedup_key(record)
         if key in seen:
             stats["duplicates"] += 1
             continue
+        ident = identity_key(record, uri)
+        if ident in seen_identity:
+            # Same origin service already collected under another
+            # presentation (R1 identity dedup): not a new candidate.
+            stats["identity_duplicates"] += 1
+            continue
+        seen_identity[ident] = key
         seen[key] = record
         stats["unique_new"] += 1
         hosts.add(record["server"])
@@ -453,17 +538,61 @@ def main(argv):
     registry_path = argv[1] if len(argv) > 1 else "pipeline/sources.json"
     with open(registry_path, encoding="utf-8") as handle:
         registry = json.load(handle)
-    seen = {}
+    # Source governance (Plan Rev.2 R1): when a governance state file
+    # sits next to the registry, sources it has auto-disabled are
+    # skipped here (and in the verifier), and this cycle's unique
+    # yields are appended to its rolling history after the run.
+    gov_state, gov_path = None, None
+    try:
+        import governance
+        candidate = os.path.join(os.path.dirname(
+            os.path.abspath(registry_path)), "governance_state.json")
+        if os.path.exists(candidate):
+            gov_path = candidate
+            gov_state = governance.load(gov_path)
+    except Exception:
+        gov_state, gov_path = None, None
+    gov_disabled = governance.disabled_names(gov_state) if gov_state else set()
+    seen, seen_identity = {}, {}
     per_source = []
     for source in registry.get("sources", []):
-        if source.get("enabled", True):
-            per_source.append(collect_source(source, seen))
+        if not source.get("enabled", True):
+            continue
+        if source["name"] in gov_disabled:
+            per_source.append({
+                "name": source["name"], "facet": source.get("facet", ""),
+                "type": source.get("type", ""), "url": source["url"],
+                "ok": False, "error": "governance_disabled",
+                "governance_disabled": True, "fetched_bytes": 0,
+                "fetched": 0, "valid": 0, "rejected": 0, "duplicates": 0,
+                "unique_new": 0, "identity_duplicates": 0,
+                "shape_rejected": 0, "variants": 0, "unique_hosts": 0,
+                "protocols": {}})
+            continue
+        per_source.append(collect_source(source, seen, seen_identity))
+    if gov_state is not None:
+        try:
+            import time as _time
+            governance.update(gov_state, per_source, _time.time())
+            newly = governance.apply_disables(
+                gov_state, registry.get("sources", []))
+            governance.save(gov_path, gov_state)
+            if newly:
+                print("governance: auto-disabled " + ", ".join(
+                    f"{n} ({r})" for n, r in newly.items()),
+                    file=sys.stderr)
+        except Exception as exc:  # governance never breaks a collect
+            print(f"governance update failed: {exc}", file=sys.stderr)
     totals = {"sources": len(per_source),
               "sources_ok": sum(1 for s in per_source if s["ok"]),
               "fetched": sum(s["fetched"] for s in per_source),
               "valid": sum(s["valid"] for s in per_source),
               "rejected": sum(s["rejected"] for s in per_source),
               "duplicates": sum(s["duplicates"] for s in per_source),
+              "identity_duplicates":
+                  sum(s.get("identity_duplicates", 0) for s in per_source),
+              "shape_rejected":
+                  sum(s.get("shape_rejected", 0) for s in per_source),
               "variants": sum(s["variants"] for s in per_source),
               "unique_records": len(seen),
               "unique_hosts": len({r["server"] for r in seen.values()}),
