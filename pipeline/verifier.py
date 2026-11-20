@@ -711,6 +711,18 @@ def run_xray_tunnel(outbound, xray, direct_ip, urls=None):
                 proc.kill()
 
 
+def _wait_port(port, timeout=10.0):
+    """Poll until a loopback TCP port accepts a connection."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                return True
+        except Exception:
+            time.sleep(0.2)
+    return False
+
+
 def run_xray_controls(xray, direct_ip):
     """run_controls' Xray twin: loopback Xray server + plain Xray client
     (the mask is exercised against real servers in the A/B itself; the
@@ -734,22 +746,33 @@ def run_xray_controls(xray, direct_ip):
             [xray, "run", "-c", path],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
-            time.sleep(1.0)
-            client = {"protocol": "vless", "tag": "proxy",
-                      "settings": {"vnext": [
-                          {"address": "127.0.0.1", "port": server_port,
-                           "users": [{"id": token,
-                                      "encryption": "none"}]}]}}
-            local_urls = (origin_base + "/generate_204",
-                          origin_base + "/trace",
-                          origin_base + "/__down")
-            positive = run_xray_tunnel(client, xray, direct_ip,
-                                       urls=local_urls)
-            result["positive"] = {"pass": positive["pass"],
-                                  "reason": positive["reason"],
-                                  "latency_ms": positive["latency_ms"],
-                                  "note": "local loopback xray pair + "
-                                          "local origin (harness proof)"}
+            # Deterministic readiness, not a fixed sleep: the first
+            # live A/B run (44707206237) failed this control with
+            # probe204 on a loaded runner — the server was not yet
+            # listening when the client's probes fired (the same
+            # control passes locally). Readiness is harness proof,
+            # not a measurement, so waiting here cannot bias the A/B.
+            if server.poll() is not None or not _wait_port(server_port):
+                result["positive"] = {
+                    "pass": False, "reason": "xray_server_not_ready",
+                    "latency_ms": None,
+                    "note": "loopback xray server never listened"}
+            else:
+                client = {"protocol": "vless", "tag": "proxy",
+                          "settings": {"vnext": [
+                              {"address": "127.0.0.1", "port": server_port,
+                               "users": [{"id": token,
+                                          "encryption": "none"}]}]}}
+                local_urls = (origin_base + "/generate_204",
+                              origin_base + "/trace",
+                              origin_base + "/__down")
+                positive = run_xray_tunnel(client, xray, direct_ip,
+                                           urls=local_urls)
+                result["positive"] = {"pass": positive["pass"],
+                                      "reason": positive["reason"],
+                                      "latency_ms": positive["latency_ms"],
+                                      "note": "local loopback xray pair + "
+                                              "local origin (harness proof)"}
         finally:
             server.terminate()
             try:

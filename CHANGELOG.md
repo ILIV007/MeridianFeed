@@ -1,3 +1,9 @@
+## 2026-11-20 — A/B control race fixed (enhanced arm invalidated, not measured)
+
+- The first valid A/B run (44707206237, 60 subjects) completed, but its **Xray controls failed on the runner** (positive: probe204) — so the enhanced arm was invalidated by design and its 0 passes are **not a finalmask measurement**. Plain arm, for the record: 9/60 passed (median 304 ms among passes) on the wider A/B candidate draw. Root cause: the Xray control server used a fixed 1 s sleep before the client probed; on a loaded runner the server was not yet listening (the identical control passes locally at ~1 ms). Fix: deterministic readiness — the control now polls the server port (`_wait_port`, 10 s budget) and reports `xray_server_not_ready` distinctly. Readiness is harness proof, not a measurement, so the wait cannot bias the A/B. Tests 53/53; local Xray controls re-verified. The A/B re-runs on this fix; the ship/reject decision is recorded with that run's numbers.
+
+Agent: Rick
+
 ## 2026-11-20 — Field feedback #3, Plan Rev.2 R5 amendment, A/B harness fix
 
 - **Field feedback #3 (wolf, on ADSL, iteration-2 VIP 8):** VMess CF via 172.64.145.x → 326 ms; SS CA → 392 ms; the other two CF variants of the same service alive at ~2.1 s; SS 38.121.43.18:19999 failed on ADSL only (mobile-proven in test #2, holds works=3 — NOT quarantined: a single-network failure never overrides field-verified status); Hysteria2 DE (steel7.hadsvpn) and NL (212.34.137.x) both dead.
