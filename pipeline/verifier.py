@@ -30,9 +30,6 @@ Usage:
   python3 pipeline/verifier.py [pipeline/sources.json]
       [--sing-box PATH] [--limit N] [--workers N] [--gate2-workers N]
       [--out verify-stats.json]
-  python3 pipeline/verifier.py --ab-finalmask [--xray PATH]
-      [--ab-limit N] [--collect-limit N] [--out ab-stats.json]
-      (Plan Rev.2 R2 paired A/B: plain sing-box vs Xray+finalmask)
 """
 import base64
 import concurrent.futures
@@ -53,6 +50,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import collector  # noqa: E402  (Gate-1 parser / fetch / dedup)
+import ir_check  # noqa: E402  (Gate-IR: Iran-reachability stage, R6.1)
 
 GATE2_TIMEOUT = 5.0
 PROBE_TIMEOUT = 8.0
@@ -93,20 +91,10 @@ def collect_candidates(registry_path, limit):
     """
     with open(registry_path, encoding="utf-8") as handle:
         registry = json.load(handle)
-    seen, seen_identity = {}, {}
+    seen = {}
     per_source = []
-    fetched = valid = identity_dups = shape_rejected = 0
+    fetched = valid = 0
     sources = [s for s in registry.get("sources", []) if s.get("enabled", True)]
-    # Source governance (Plan Rev.2 R1): skip auto-disabled sources.
-    try:
-        import governance
-        gov_path = os.path.join(os.path.dirname(
-            os.path.abspath(registry_path)), "governance_state.json")
-        if os.path.exists(gov_path):
-            disabled = governance.disabled_names(governance.load(gov_path))
-            sources = [s for s in sources if s["name"] not in disabled]
-    except Exception:
-        pass
     random.shuffle(sources)  # spread politely: no fixed hammering order
     for source in sources:
         try:
@@ -122,20 +110,9 @@ def collect_candidates(registry_path, limit):
                 if record is None:
                     continue
                 valid += 1
-                if collector.cf_shape_reject(record, uri) is not None:
-                    shape_rejected += 1
-                    continue
                 key = collector.dedup_key(record)
                 if key in seen:
                     continue
-                ident = collector.identity_key(record, uri)
-                if ident in seen_identity:
-                    # Same origin service under another presentation:
-                    # one candidate per service (R1 identity dedup) —
-                    # Gate-3 budget is spent on services, not copies.
-                    identity_dups += 1
-                    continue
-                seen_identity[ident] = key
                 seen[key] = (record, uri)
                 entries.append((record, uri))
                 # CF presentation variants enter as ordinary
@@ -161,9 +138,7 @@ def collect_candidates(registry_path, limit):
             break
         idx += 1
     totals = {"fetched": fetched, "gate1_valid": valid,
-              "unique": len(seen), "sampled": len(sample),
-              "identity_duplicates": identity_dups,
-              "shape_rejected": shape_rejected}
+              "unique": len(seen), "sampled": len(sample)}
     return sample, totals
 
 
@@ -451,69 +426,6 @@ def _start_origin():
     return server, "http://127.0.0.1:%d" % server.server_address[1]
 
 
-def _probe(port, direct_ip, url_204, url_trace, url_speed):
-    """The Gate-3 probe sequence against a local proxy port: 3x
-    generate_204 (median latency), a trace fetch (egress must differ
-    from this host's direct egress), and a small speed sample. Shared
-    by the sing-box and Xray runners so a core A/B measures the cores
-    and the mask — never two probe implementations."""
-    result = {"pass": False, "reason": None, "latency_ms": None,
-              "speed_mbps": None, "egress_country": None}
-    opener = _proxy_opener(port)
-    latencies = []
-    for _ in range(3):
-        try:
-            status, _, elapsed = _fetch(opener, url_204)
-            if status not in (200, 204):
-                result["reason"] = "probe204_status"
-                return result
-            latencies.append(elapsed)
-        except Exception:
-            result["reason"] = "probe204"
-            return result
-    result["latency_ms"] = round(statistics.median(latencies), 1)
-    try:
-        _, body, _ = _fetch(opener, url_trace)
-        fields = dict(line.split("=", 1) for line in
-                      body.decode("utf-8", "replace").splitlines()
-                      if "=" in line)
-        egress_ip = fields.get("ip")
-        result["egress_country"] = fields.get("loc")
-    except Exception:
-        result["reason"] = "trace"
-        return result
-    if not egress_ip:
-        result["reason"] = "trace_no_ip"
-        return result
-    if direct_ip and egress_ip == direct_ip:
-        result["reason"] = "egress_same"
-        return result
-    try:
-        _, body, elapsed = _fetch(opener, url_speed, timeout=15)
-        if elapsed > 0:
-            result["speed_mbps"] = round(
-                len(body) * 8 / (elapsed / 1000.0) / 1_000_000, 2)
-    except Exception:
-        result["speed_mbps"] = None  # recorded, not fatal in one run
-    result["pass"] = True
-    return result
-
-
-def _wait_ready(proc, port, result, exit_reason):
-    deadline = time.monotonic() + READY_TIMEOUT
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            result["reason"] = exit_reason
-            return False
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=1):
-                return True
-        except Exception:
-            time.sleep(0.2)
-    result["reason"] = "not_ready"
-    return False
-
-
 def run_tunnel(outbound, sing_box, direct_ip, urls=None):
     """One Gate-3 attempt. Returns a result dict (aggregate-safe fields).
     urls optionally overrides (url_204, url_trace, url_speed) — used only
@@ -535,10 +447,58 @@ def run_tunnel(outbound, sing_box, direct_ip, urls=None):
             [sing_box, "run", "-c", cfg_path],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
-            if not _wait_ready(proc, port, result, "singbox_exit"):
+            deadline = time.monotonic() + READY_TIMEOUT
+            ready = False
+            while time.monotonic() < deadline:
+                if proc.poll() is not None:
+                    result["reason"] = "singbox_exit"
+                    return result
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=1):
+                        ready = True
+                        break
+                except Exception:
+                    time.sleep(0.2)
+            if not ready:
+                result["reason"] = "not_ready"
                 return result
-            result.update(_probe(port, direct_ip,
-                                 url_204, url_trace, url_speed))
+            opener = _proxy_opener(port)
+            latencies = []
+            for _ in range(3):
+                try:
+                    status, _, elapsed = _fetch(opener, url_204)
+                    if status not in (200, 204):
+                        result["reason"] = "probe204_status"
+                        return result
+                    latencies.append(elapsed)
+                except Exception:
+                    result["reason"] = "probe204"
+                    return result
+            result["latency_ms"] = round(statistics.median(latencies), 1)
+            try:
+                _, body, _ = _fetch(opener, url_trace)
+                fields = dict(line.split("=", 1) for line in
+                              body.decode("utf-8", "replace").splitlines()
+                              if "=" in line)
+                egress_ip = fields.get("ip")
+                result["egress_country"] = fields.get("loc")
+            except Exception:
+                result["reason"] = "trace"
+                return result
+            if not egress_ip:
+                result["reason"] = "trace_no_ip"
+                return result
+            if direct_ip and egress_ip == direct_ip:
+                result["reason"] = "egress_same"
+                return result
+            try:
+                _, body, elapsed = _fetch(opener, url_speed, timeout=15)
+                if elapsed > 0:
+                    result["speed_mbps"] = round(
+                        len(body) * 8 / (elapsed / 1000.0) / 1_000_000, 2)
+            except Exception:
+                result["speed_mbps"] = None  # recorded, not fatal in one run
+            result["pass"] = True
             return result
         finally:
             proc.terminate()
@@ -597,337 +557,6 @@ def run_controls(sing_box, direct_ip):
     return result
 
 
-# ------------------------------------------- finalmask A/B (Plan Rev.2 R2)
-#
-# The Enhanced track question: does presenting a TLS VLESS/Trojan link
-# through Xray-core with a finalmask fragment preset pass Gate 3 more
-# often than the plain sing-box presentation of the same link? The
-# preset is the ecosystem's universal double-fragment (patterniha /
-# proxy-builder "v2"), carried verbatim: values are strings in the
-# shipped form and Xray's parser accepts them as such. fp is "unsafe"
-# (stock Go TLS, no uTLS fingerprint) — the pairing the preset is
-# published with. Plain stays the production default whatever the A/B
-# says; a separate labelled variant track ships only on a win or a
-# tie-with-benefits (see docs/PLAN.md Plan Rev.2).
-
-FINALMASK_TCP = [
-    {"type": "fragment",
-     "settings": {"packets": "tlshello", "lengths": ["0", "104", "1"],
-                  "delays": ["0"], "maxSplit": "0"}},
-    {"type": "fragment",
-     "settings": {"packets": "1-1", "lengths": ["114", "1"],
-                  "delays": ["1"], "maxSplit": "11"}},
-]
-
-
-def build_xray_outbound(uri):
-    """Translate one security=tls VLESS/Trojan URI into an Xray outbound
-    carrying the finalmask preset, or None when the URI is outside the
-    A/B's scope (other protocols, REALITY/none security, exotic
-    transports). The builder doubles as the eligibility test."""
-    scheme = uri.partition("://")[0].lower()
-    if scheme not in ("vless", "trojan"):
-        return None
-    parsed = urlparse(uri)
-    host, port = parsed.hostname, parsed.port
-    if not host or not port:
-        return None
-    query = parse_qs(parsed.query)
-    user = unquote(parsed.username or "")
-    password = unquote(parsed.password or "")
-    security = (_q1(query, "security")
-                or ("tls" if scheme == "trojan" else "")).lower()
-    if security != "tls":
-        return None
-    net = (_q1(query, "type") or "tcp").lower()
-    tls_settings = {"serverName": _q1(query, "sni") or host,
-                    "fingerprint": "unsafe"}
-    alpn = _q1(query, "alpn")
-    if alpn:
-        tls_settings["alpn"] = [a for a in alpn.split(",") if a]
-    stream = {"network": net, "security": "tls",
-              "tlsSettings": tls_settings,
-              "finalmask": {"tcp": FINALMASK_TCP}}
-    if net == "ws":
-        ws = {"path": _q1(query, "path") or "/"}
-        if _q1(query, "host"):
-            ws["headers"] = {"Host": _q1(query, "host")}
-        stream["wsSettings"] = ws
-    elif net == "grpc":
-        stream["grpcSettings"] = {"serviceName": _q1(query, "serviceName")
-                                  or ""}
-    elif net in ("http", "h2"):
-        stream["network"] = "http"
-        http = {"path": _q1(query, "path") or "/"}
-        if _q1(query, "host"):
-            http["host"] = [_q1(query, "host")]
-        stream["httpSettings"] = http
-    elif net != "tcp":
-        return None
-    if scheme == "vless":
-        user_obj = {"id": user, "encryption": "none"}
-        if _q1(query, "flow"):
-            user_obj["flow"] = _q1(query, "flow")
-        return {"protocol": "vless", "tag": "proxy",
-                "settings": {"vnext": [{"address": host, "port": port,
-                                        "users": [user_obj]}]},
-                "streamSettings": stream}
-    return {"protocol": "trojan", "tag": "proxy",
-            "settings": {"servers": [{"address": host, "port": port,
-                                      "password": password or user}]},
-            "streamSettings": stream}
-
-
-def run_xray_tunnel(outbound, xray, direct_ip, urls=None, stderr_path=None):
-    """run_tunnel's Xray twin: an http inbound (urllib's ProxyHandler
-    speaks HTTP proxying, not SOCKS) in front of the given outbound,
-    then the identical _probe sequence. stderr_path is used only by
-    the loopback controls (diagnosability); candidate tunnels keep
-    stderr discarded."""
-    url_204, url_trace, url_speed = urls or (URL_204, URL_TRACE, URL_SPEED)
-    result = {"pass": False, "reason": None, "latency_ms": None,
-              "speed_mbps": None, "egress_country": None}
-    port = free_port()
-    config = {"log": {"loglevel": "warning"},
-              "inbounds": [{"protocol": "http", "tag": "in",
-                            "listen": "127.0.0.1", "port": port}],
-              "outbounds": [outbound]}
-    with tempfile.TemporaryDirectory(prefix="mf-ab-") as tmp:
-        cfg_path = os.path.join(tmp, "client.json")
-        with open(cfg_path, "w", encoding="utf-8") as handle:
-            json.dump(config, handle)
-        err_handle = open(stderr_path, "wb") if stderr_path else None
-        proc = subprocess.Popen(
-            [xray, "run", "-c", cfg_path],
-            stdout=subprocess.DEVNULL,
-            stderr=err_handle or subprocess.DEVNULL)
-        if err_handle:
-            err_handle.close()
-        try:
-            if not _wait_ready(proc, port, result, "xray_exit"):
-                return result
-            result.update(_probe(port, direct_ip,
-                                 url_204, url_trace, url_speed))
-            return result
-        finally:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except Exception:
-                proc.kill()
-
-
-def _wait_port(port, timeout=10.0):
-    """Poll until a loopback TCP port accepts a connection."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=1):
-                return True
-        except Exception:
-            time.sleep(0.2)
-    return False
-
-
-def run_xray_controls(xray, direct_ip):
-    """run_controls' Xray twin: loopback Xray server + plain Xray client
-    (the mask is exercised against real servers in the A/B itself; the
-    control proves the Xray harness), plus the same dead-config
-    negative."""
-    import uuid as uuidlib
-    token = str(uuidlib.uuid4())
-    origin, origin_base = _start_origin()
-    server_port, result = free_port(), {}
-    server_cfg = {"log": {"loglevel": "warning"},
-                  "inbounds": [{"protocol": "vless", "listen": "127.0.0.1",
-                                "port": server_port,
-                                "settings": {"clients": [{"id": token}],
-                                             "decryption": "none"}}],
-                  # Xray v26's freedom outbound blackholes private /
-                  # loopback targets by default (a "finalrule" SSRF
-                  # guard, 90 s blackhole — it silently hung this
-                  # control on CI runners while v25 and local runs
-                  # passed; diagnosed 2026-11-20, diag runs
-                  # 44710508376 / 44710917446 / 44711332653). The
-                  # control server is a test double whose whole job is
-                  # dialing a loopback origin, so it allows explicitly.
-                  # Candidate tunnels never touch freedom on our side;
-                  # this affects nothing but the control.
-                  "outbounds": [{"protocol": "freedom", "tag": "direct",
-                                 "settings": {"finalRules": [
-                                     {"action": "allow",
-                                      "network": "tcp,udp",
-                                      "ip": ["0.0.0.0/0", "::/0"]}]}}]}
-    with tempfile.TemporaryDirectory(prefix="mf-ab-control-") as tmp:
-        path = os.path.join(tmp, "server.json")
-        with open(path, "w", encoding="utf-8") as handle:
-            json.dump(server_cfg, handle)
-        server_err = open(os.path.join(tmp, "server.err"), "wb")
-        server = subprocess.Popen(
-            [xray, "run", "-c", path],
-            stdout=subprocess.DEVNULL, stderr=server_err)
-        server_err.close()
-        try:
-            # Deterministic readiness, not a fixed sleep: the first
-            # live A/B run (44707206237) failed this control with
-            # probe204 on a loaded runner — the server was not yet
-            # listening when the client's probes fired (the same
-            # control passes locally). Readiness is harness proof,
-            # not a measurement, so waiting here cannot bias the A/B.
-            if server.poll() is not None or not _wait_port(server_port):
-                result["positive"] = {
-                    "pass": False, "reason": "xray_server_not_ready",
-                    "latency_ms": None,
-                    "note": "loopback xray server never listened"}
-            else:
-                client = {"protocol": "vless", "tag": "proxy",
-                          "settings": {"vnext": [
-                              {"address": "127.0.0.1", "port": server_port,
-                               "users": [{"id": token,
-                                          "encryption": "none"}]}]}}
-                local_urls = (origin_base + "/generate_204",
-                              origin_base + "/trace",
-                              origin_base + "/__down")
-                client_err_path = os.path.join(tmp, "client.err")
-                positive = run_xray_tunnel(client, xray, direct_ip,
-                                           urls=local_urls,
-                                           stderr_path=client_err_path)
-                result["positive"] = {"pass": positive["pass"],
-                                      "reason": positive["reason"],
-                                      "latency_ms": positive["latency_ms"],
-                                      "note": "local loopback xray pair + "
-                                              "local origin (harness proof)"}
-                if not positive["pass"]:
-                    # Controls exist to prove the harness — when they
-                    # fail on a remote runner, the cores' own logs are
-                    # the diagnosis. Loopback control logs only: they
-                    # can contain no config or credential data.
-                    def _tail(p):
-                        try:
-                            with open(p, "rb") as fh:
-                                return fh.read()[-600:].decode(
-                                    "utf-8", "replace")
-                        except Exception:
-                            return ""
-                    result["positive"]["diag"] = {
-                        "server": _tail(os.path.join(tmp, "server.err")),
-                        "client": _tail(client_err_path)}
-        finally:
-            server.terminate()
-            try:
-                server.wait(timeout=5)
-            except Exception:
-                server.kill()
-            origin.shutdown()
-    dead = {"protocol": "vless", "tag": "proxy",
-            "settings": {"vnext": [
-                {"address": "203.0.113.99", "port": 443,
-                 "users": [{"id": str(uuidlib.uuid4()),
-                            "encryption": "none"}]}]},
-            "streamSettings": {"network": "tcp", "security": "tls",
-                               "tlsSettings": {
-                                   "serverName": "example.com",
-                                   "fingerprint": "unsafe"}}}
-    negative = run_xray_tunnel(dead, xray, direct_ip)
-    result["negative"] = {"pass": negative["pass"],
-                          "reason": negative["reason"]}
-    result["ok"] = bool(result["positive"]["pass"]) and not negative["pass"]
-    return result
-
-
-def ab_finalmask(registry_path, sing_box, xray, limit, collect_limit,
-                 workers):
-    """Paired A/B: the same Gate-2-passing TLS VLESS/Trojan candidates
-    through (plain) sing-box and (enhanced) Xray+finalmask. Output is
-    counts and opaque pass-keys only — same privacy rule as verify()."""
-    stats = {"tool": "meridianfeed-ab-finalmask", "ab_version": "1.0.0",
-             "subjects": 0,
-             "paired": {"both": 0, "plain_only": 0,
-                        "enhanced_only": 0, "neither": 0},
-             "per_subject": []}
-    sample_all, totals = collect_candidates(registry_path, collect_limit)
-    stats["collect_totals"] = totals
-    random.shuffle(sample_all)  # never test in list order
-    subjects = []
-    for record, uri in sample_all:
-        if len(subjects) >= limit:
-            break
-        if build_xray_outbound(uri) is None:
-            continue
-        if not gate2(record)[0]:
-            continue
-        subjects.append((record, uri))
-    stats["subjects"] = len(subjects)
-    direct_ip, _ = direct_egress()
-    stats["controls"] = {
-        "sing_box": run_controls(sing_box, direct_ip) if sing_box
-        else {"ok": False, "reason": "no_sing_box"},
-        "xray": run_xray_controls(xray, direct_ip) if xray
-        else {"ok": False, "reason": "no_xray"},
-    }
-    plain_ok = bool(stats["controls"]["sing_box"].get("ok"))
-    enh_ok = bool(stats["controls"]["xray"].get("ok"))
-
-    def failed(reason):
-        return {"pass": False, "reason": reason, "latency_ms": None}
-
-    def one(pair):
-        record, uri = pair
-        if plain_ok:
-            outbound = build_outbound(uri)
-            plain = run_tunnel(outbound, sing_box, direct_ip) if outbound \
-                else failed("build_none")
-        else:
-            plain = failed("controls_failed")
-        if enh_ok:
-            xray_outbound = build_xray_outbound(uri)
-            enh = run_xray_tunnel(xray_outbound, xray, direct_ip) \
-                if xray_outbound else failed("build_none")
-        else:
-            enh = failed("controls_failed")
-        return record, plain, enh
-
-    plain_lat, enh_lat = [], []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        for record, plain, enh in pool.map(one, subjects):
-            p, e = bool(plain["pass"]), bool(enh["pass"])
-            if p and plain["latency_ms"] is not None:
-                plain_lat.append(plain["latency_ms"])
-            if e and enh["latency_ms"] is not None:
-                enh_lat.append(enh["latency_ms"])
-            bucket = "both" if p and e else "plain_only" if p else \
-                "enhanced_only" if e else "neither"
-            stats["paired"][bucket] += 1
-            stats["per_subject"].append(
-                {"key": pass_key(record), "plain": p, "enhanced": e})
-    n = max(1, len(subjects))
-    plain_passes = stats["paired"]["both"] + stats["paired"]["plain_only"]
-    enh_passes = stats["paired"]["both"] + stats["paired"]["enhanced_only"]
-    stats["plain"] = {"passes": plain_passes,
-                      "pass_rate": round(plain_passes / n, 4),
-                      "latency_ms": distribution(plain_lat)}
-    stats["enhanced"] = {"passes": enh_passes,
-                         "pass_rate": round(enh_passes / n, 4),
-                         "latency_ms": distribution(enh_lat)}
-    return stats
-
-
-def find_xray(cli_value):
-    candidates = [cli_value, os.environ.get("XRAY_BIN"), "xray"]
-    for candidate in candidates:
-        if not candidate:
-            continue
-        path = candidate if os.path.sep in candidate else None
-        if path and os.path.isfile(path) and os.access(path, os.X_OK):
-            return path
-        if not path:
-            for directory in os.environ.get("PATH", "").split(os.pathsep):
-                full = os.path.join(directory, candidate)
-                if os.path.isfile(full) and os.access(full, os.X_OK):
-                    return full
-    return None
-
-
 # -------------------------------------------------------------------- main
 
 def distribution(values):
@@ -952,7 +581,7 @@ def build_uri_map(pairs):
 
 def verify(registry_path, sing_box, limit, workers, gate2_workers,
            map_out=None):
-    stats = {"tool": "meridianfeed-verifier", "verifier_version": "1.1.0",
+    stats = {"tool": "meridianfeed-verifier", "verifier_version": "1.2.0",
              "sing_box": bool(sing_box), "passes": [],
              "limits": {"sample": limit, "gate3_workers": workers}}
     sample, totals = collect_candidates(registry_path, limit)
@@ -992,6 +621,7 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers,
     results, fail_reasons = [], {}
     countries, protocols_pass = {}, {}
     pass_records = []
+    ir_targets = {}  # Gate-IR candidates: passes meeting the VIP floors
 
     def _one(pair):
         record, uri = pair
@@ -1025,6 +655,12 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers,
                         and outcome["latency_ms"] <= PUBLIC_LATENCY_MS
                         and (outcome["speed_mbps"] or 0)
                         >= PUBLIC_SPEED_MBPS)})
+                if (outcome["latency_ms"] is not None
+                        and outcome["latency_ms"] <= ir_check.VIP_LATENCY_MS
+                        and (outcome["speed_mbps"] or 0)
+                        >= ir_check.VIP_SPEED_MBPS):
+                    ir_targets[pass_key(record)] = (record["server"],
+                                                    record["port"])
             else:
                 reason = outcome["reason"] or "unknown"
                 fail_reasons[reason] = fail_reasons.get(reason, 0) + 1
@@ -1047,6 +683,27 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers,
                 "(public: a 2nd run >=15 min later; VIP: 3 consecutive "
                 "cycles) — a single run never publishes anything."}
     stats["passes"] = pass_records
+    # Gate-IR (Plan Rev.2 R6.1): Iran-reachability verdicts for the
+    # VIP-floor passes only (API economy). Fail-open-to-neutral: any
+    # stage failure leaves every key's ir_reachable null, and the
+    # composer treats null as neutral — the stage can only ever
+    # *withhold* a VIP promotion on a confirmed failure, never break
+    # a run. Endpoints themselves never enter the stats (host/port
+    # live in memory only, exactly like URIs).
+    if ir_check.stage_from_env():
+        stats["ir_stage"] = "disabled"
+        stats["ir_counts"] = {"endpoints": 0, "reachable": 0,
+                              "unreachable": 0, "neutral": 0}
+        ir_verdicts = {}
+    else:
+        try:
+            ir_verdicts, ir_stage, ir_counts = ir_check.annotate(ir_targets)
+        except Exception:
+            ir_verdicts, ir_stage, ir_counts = {}, "neutral_error", {}
+        stats["ir_stage"] = ir_stage
+        stats["ir_counts"] = ir_counts
+    for record in pass_records:
+        record["ir_reachable"] = ir_verdicts.get(record["key_hash"])
     return stats
 
 
@@ -1081,20 +738,6 @@ def main(argv):
     out_path = opt("--out", None)
     map_out = opt("--map-out", "verify-uri-map.json" if out_path else None)
     sing_box = find_sing_box(opt("--sing-box", None))
-    if "--ab-finalmask" in args:
-        xray = find_xray(opt("--xray", None))
-        stats = ab_finalmask(registry, sing_box, xray,
-                             int(opt("--ab-limit", "60")),
-                             int(opt("--collect-limit", "600")),
-                             workers)
-        stats["sing_box_path_found"] = bool(sing_box)
-        stats["xray_path_found"] = bool(xray)
-        text = json.dumps(stats, indent=2)
-        print(text)
-        if out_path:
-            with open(out_path, "w", encoding="utf-8") as handle:
-                handle.write(text + "\n")
-        return 0
     stats = verify(registry, sing_box, limit, workers, gate2_workers,
                    map_out=map_out)
     stats["sing_box_path_found"] = bool(sing_box)
