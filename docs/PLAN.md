@@ -87,3 +87,9 @@ Known limit: runners are outside Iran — a pass proves the config truly works, 
 
 Decided (corrected by wolf on 2026-11-20, superseding the earlier `Pool-v2` reading): repo name was `Pool-v2ray`; renamed the same night to the codename `MeridianFeed` under wolf's naming/risk rule (see Naming & risk rules above). Nothing was created under the old name.
 Open items for wolf: new CF account hand-off, new bot token (via Secure Vault), who counts as VIP.
+
+## MORNING CHECKUP — 2026-11-20 (Agent: Rick)
+
+- **Incident:** composer dispatch-loop stalled the pool after 03:28Z; the 05:33Z post was correctly skipped by the staleness guard. Fixed the same morning: the composer now waits for the dispatched run and composes in the same tick (see CHANGELOG). The 06:33Z post fired (message 2672); the hourly loop is healthy since.
+- **Known flake:** the verify workflow's `17 * * * *` schedule fired only once in 8 hours — the composer no longer depends on it.
+- **Still open:** Phase 4 anchor (1101, wolf's call), first real admin /start over the webhook as final delivery proof, device import spot check.
