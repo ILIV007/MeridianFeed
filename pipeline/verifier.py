@@ -36,6 +36,7 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import random
 import socket
 import ssl
 import statistics
@@ -92,9 +93,9 @@ def collect_candidates(registry_path, limit):
     seen = {}
     per_source = []
     fetched = valid = 0
-    for source in registry.get("sources", []):
-        if not source.get("enabled", True):
-            continue
+    sources = [s for s in registry.get("sources", []) if s.get("enabled", True)]
+    random.shuffle(sources)  # spread politely: no fixed hammering order
+    for source in sources:
         try:
             raw = collector.fetch(source["url"])
         except Exception:
@@ -559,12 +560,26 @@ def distribution(values):
             "min": round(ordered[0], 2), "max": round(ordered[-1], 2)}
 
 
-def verify(registry_path, sing_box, limit, workers, gate2_workers):
+def build_uri_map(pairs):
+    """Snapshot-pinning map (Phase B): opaque pass-key hash -> URI for
+    exactly the configs this run sampled. PRIVATE — the map is uploaded
+    as a short-retention Actions artifact only; it never enters the
+    repo, the stats, or any log. It lets the composer recover eligible
+    URIs from the runs that actually tested them instead of re-fetching
+    churned source lists."""
+    return {pass_key(record): uri for record, uri in pairs}
+
+
+def verify(registry_path, sing_box, limit, workers, gate2_workers,
+           map_out=None):
     stats = {"tool": "meridianfeed-verifier", "verifier_version": "1.1.0",
              "sing_box": bool(sing_box), "passes": [],
              "limits": {"sample": limit, "gate3_workers": workers}}
     sample, totals = collect_candidates(registry_path, limit)
     stats["input"] = totals
+    if map_out:
+        with open(map_out, "w", encoding="utf-8") as handle:
+            json.dump(build_uri_map(sample), handle)
     # Gate 2 (concurrent)
     gate2_reasons, survivors = {}, []
     with concurrent.futures.ThreadPoolExecutor(gate2_workers) as pool:
@@ -684,8 +699,10 @@ def main(argv):
     workers = int(opt("--workers", "4"))
     gate2_workers = int(opt("--gate2-workers", "32"))
     out_path = opt("--out", None)
+    map_out = opt("--map-out", "verify-uri-map.json" if out_path else None)
     sing_box = find_sing_box(opt("--sing-box", None))
-    stats = verify(registry, sing_box, limit, workers, gate2_workers)
+    stats = verify(registry, sing_box, limit, workers, gate2_workers,
+                   map_out=map_out)
     stats["sing_box_path_found"] = bool(sing_box)
     text = json.dumps(stats, indent=2)
     print(text)
