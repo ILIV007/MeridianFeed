@@ -37,6 +37,164 @@ BAD_NETS = [ipaddress.ip_network(n) for n in (
     "::1/128", "fe80::/10", "fc00::/7")]
 BAD_HOSTS = {"localhost", "127.0.0.53"}
 
+# Cloudflare anycast ranges + a small curated set of edge IPs used for
+# presentation variants (see expand_cf_variants). The first three IPs
+# are field-proven from Iran (wolf's tests, 2026-11-20); the fourth was
+# observed as an edge address in our own collected pool.
+CF_NETS = [ipaddress.ip_network(n) for n in (
+    "104.16.0.0/13", "104.24.0.0/14", "172.64.0.0/13", "162.158.0.0/15",
+    "198.41.128.0/17", "173.245.48.0/20", "188.114.96.0/20",
+    "190.93.240.0/20", "197.234.240.0/22", "198.41.192.0/18")]
+CF_VARIANT_IPS = ("172.64.145.93", "188.114.99.137",
+                  "172.67.190.164", "104.18.42.163")
+MAX_CF_VARIANTS = 3
+
+_resolve_cache = {}
+
+
+def _resolve_ips(host):
+    """Resolve a hostname to IPs (cached per process); [] on failure."""
+    host = (host or "").strip().lower()
+    if not host:
+        return []
+    if host in _resolve_cache:
+        return _resolve_cache[host]
+    try:
+        ipaddress.ip_address(host)
+        ips = [host]
+    except ValueError:
+        import socket
+        try:
+            ips = sorted({info[4][0] for info in
+                          socket.getaddrinfo(host, None)})
+        except Exception:
+            ips = []
+    _resolve_cache[host] = ips
+    return ips
+
+
+def _in_cf(ip_text):
+    try:
+        addr = ipaddress.ip_address(ip_text)
+    except ValueError:
+        return False
+    return any(addr in net for net in CF_NETS if net.version == addr.version)
+
+
+def _uri_extras(uri):
+    """(transport, security, sni, host_header, path) for fronting and
+    service-identity decisions. Empty strings when absent."""
+    if uri.lower().startswith("vmess://"):
+        decoded = b64decode_loose(uri.split("://", 1)[1].split("#", 1)[0]
+                                  .split("?", 1)[0])
+        try:
+            data = json.loads(decoded or "")
+        except Exception:
+            return "tcp", "", "", "", ""
+        return (str(data.get("net") or "tcp").lower(),
+                "tls" if str(data.get("tls") or "").lower() == "tls" else "",
+                str(data.get("sni") or ""), str(data.get("host") or ""),
+                str(data.get("path") or ""))
+    from urllib.parse import urlparse, parse_qs
+    try:
+        parsed = urlparse(uri)
+        query = parse_qs(parsed.query)
+    except ValueError:
+        return "tcp", "", "", "", ""
+    first = lambda name: (query.get(name) or [""])[0]
+    return ((first("type") or first("net") or "tcp").lower(),
+            first("security").lower(), first("sni"), first("host"),
+            first("path"))
+
+
+def cf_fronted(record, uri):
+    """True when the config rides the Cloudflare edge: WS+TLS whose
+    address is a CF anycast IP, or whose SNI/Host (or address) domain
+    resolves into CF ranges. Only then is swapping the address across
+    edge IPs connection-preserving."""
+    if record["protocol"] not in ("vmess", "vless", "trojan"):
+        return False
+    transport, security, sni, host_header, _ = _uri_extras(uri)
+    if transport != "ws" or security != "tls":
+        return False
+    if _in_cf(record["server"]):
+        return True
+    for domain in (sni, host_header, record["server"]):
+        if domain and not _in_cf(domain):  # a domain, not an IP literal
+            if any(_in_cf(ip) for ip in _resolve_ips(domain)):
+                return True
+    return False
+
+
+def _swap_vmess_add(uri, new_host):
+    decoded = b64decode_loose(uri.split("://", 1)[1].split("#", 1)[0]
+                              .split("?", 1)[0])
+    data = json.loads(decoded or "")
+    data["add"] = new_host
+    return "vmess://" + base64.b64encode(
+        json.dumps(data).encode()).decode()
+
+
+def _swap_url_host(uri, new_host):
+    scheme, rest = uri.split("://", 1)
+    match = re.match(r"([^/?#]*)(.*)", rest, re.S)
+    authority, tail = match.group(1), match.group(2)
+    if "@" in authority:
+        userinfo, hostport = authority.rsplit("@", 1)
+        prefix = userinfo + "@"
+    else:
+        prefix, hostport = "", authority
+    if hostport.startswith("[") and "]" in hostport:
+        hostport = new_host + hostport[hostport.index("]") + 1:]
+    elif ":" in hostport:
+        hostport = new_host + ":" + hostport.rsplit(":", 1)[1]
+    else:
+        hostport = new_host
+    return "%s://%s%s%s" % (scheme, prefix, hostport, tail)
+
+
+def expand_cf_variants(record, uri):
+    """Presentation variants of a Cloudflare-fronted config (BPB
+    lesson, field-proven 2026-11-20): the SAME service presented via
+    several CF anycast IPs — only the address changes; SNI, Host, path
+    and credentials are untouched. Each variant parses to its own dedup
+    key and must pass the verifier gates on its own merits — variants
+    inherit nothing. Returns [(record, uri)] with the original first;
+    just the original when the config is not CF-fronted."""
+    out = [(record, uri)]
+    if not cf_fronted(record, uri):
+        return out
+    for ip in CF_VARIANT_IPS:
+        if len(out) > MAX_CF_VARIANTS:
+            break
+        if ip == record["server"]:
+            continue
+        variant_uri = (_swap_vmess_add(uri, ip)
+                       if record["protocol"] == "vmess"
+                       else _swap_url_host(uri, ip))
+        variant = parse_uri(variant_uri, record.get("source", ""))
+        if variant is None or dedup_key(variant) == dedup_key(record):
+            continue
+        out.append((variant, variant_uri))
+    return out
+
+
+def service_key(record, uri):
+    """Identity of the origin service behind a config: protocol +
+    credential + port + front identity (SNI/Host) + path. Presentation
+    variants of one service share a service key even though their
+    dedup keys differ — composition caps per service, not per IP."""
+    _, _, sni, host_header, path = _uri_extras(uri)
+    front = (sni or host_header or record["server"]).lower()
+    return hashlib.sha256("|".join((
+        record["protocol"], record["credential_hash"],
+        str(record["port"]), front, path)).encode("utf-8")).hexdigest()
+
+
+def service_key_from_uri(uri):
+    record = parse_uri(uri, "")
+    return service_key(record, uri) if record else None
+
 
 def b64decode_loose(text):
     """Decode base64 with missing padding, standard or urlsafe alphabet."""
@@ -249,7 +407,7 @@ def collect_source(source, seen):
              "type": source.get("type", ""), "url": source["url"],
              "ok": False, "error": None, "fetched_bytes": 0, "fetched": 0,
              "valid": 0, "rejected": 0, "duplicates": 0, "unique_new": 0,
-             "unique_hosts": 0, "protocols": {}}
+             "variants": 0, "unique_hosts": 0, "protocols": {}}
     try:
         raw = fetch(source["url"])
     except Exception as exc:  # one polite fetch; failures are reported, not retried
@@ -277,6 +435,16 @@ def collect_source(source, seen):
         seen[key] = record
         stats["unique_new"] += 1
         hosts.add(record["server"])
+        # CF-fronted configs multiply into presentation variants at
+        # collect time; each variant is an ordinary candidate with its
+        # own dedup key and must pass the gates independently.
+        for vrec, _vuri in expand_cf_variants(record, uri):
+            vkey = dedup_key(vrec)
+            if vkey in seen:
+                continue
+            seen[vkey] = vrec
+            stats["variants"] += 1
+            hosts.add(vrec["server"])
     stats["unique_hosts"] = len(hosts)
     return stats
 
@@ -296,6 +464,7 @@ def main(argv):
               "valid": sum(s["valid"] for s in per_source),
               "rejected": sum(s["rejected"] for s in per_source),
               "duplicates": sum(s["duplicates"] for s in per_source),
+              "variants": sum(s["variants"] for s in per_source),
               "unique_records": len(seen),
               "unique_hosts": len({r["server"] for r in seen.values()}),
               "protocols": {}}
