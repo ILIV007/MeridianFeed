@@ -165,5 +165,73 @@ class AnnotateTests(unittest.TestCase):
         self.assertEqual(counts["endpoints"], 0)
 
 
+def scripted_ping(*results):
+    """A ping probe (host-only signature) returning scripted results."""
+    queue = list(results)
+    calls = []
+
+    def probe(host):
+        calls.append(host)
+        return queue.pop(0) if queue else None
+
+    probe.calls = calls
+    return probe
+
+
+class LatencyTests(unittest.TestCase):
+    """Iran-side ping latency (field iteration 3): a ranking signal
+    only — present values pass through, missing stays None, and the
+    measurement can never fail the stage or touch a verdict."""
+
+    def test_endpoint_latency_prefers_globalping(self):
+        gp = scripted_ping(123.0)
+        ch = scripted_ping(45.0)
+        self.assertEqual(ir_check.endpoint_latency("h", gp=gp, ch=ch),
+                         123.0)
+        self.assertEqual(len(ch.calls), 0)
+
+    def test_endpoint_latency_falls_back_to_check_host(self):
+        self.assertEqual(ir_check.endpoint_latency(
+            "h", gp=scripted_ping(None), ch=scripted_ping(45.0)), 45.0)
+
+    def test_endpoint_latency_unmeasurable_is_none(self):
+        self.assertIsNone(ir_check.endpoint_latency(
+            "h", gp=scripted_ping(None), ch=scripted_ping(None)))
+
+    def test_annotate_with_latency_measures_per_host(self):
+        seen = []
+
+        def ping(host):
+            seen.append(host)
+            return {"a.example": 111.0}.get(host)
+
+        targets = {"k1": ("a.example", 443), "k2": ("a.example", 8443),
+                   "k3": ("b.example", 443)}
+        out = ir_check.annotate_with_latency(targets, ping=ping)
+        self.assertEqual(out, {"k1": 111.0, "k2": 111.0, "k3": None})
+        self.assertEqual(sorted(seen), ["a.example", "b.example"])
+
+    def test_annotate_with_latency_reuses_earlier_measurements(self):
+        def ping(host):
+            raise AssertionError("must not re-measure")
+
+        targets = {"k1": ("a.example", 443)}
+        out = ir_check.annotate_with_latency(
+            targets, latencies={"k1": 88.0}, ping=ping)
+        self.assertEqual(out, {"k1": 88.0})
+
+    def test_annotate_with_latency_probe_errors_stay_neutral(self):
+        def ping(host):
+            raise RuntimeError("API down")
+
+        out = ir_check.annotate_with_latency(
+            {"k1": ("a.example", 443)}, ping=ping)
+        self.assertEqual(out, {"k1": None})
+
+    def test_annotate_with_latency_empty_targets(self):
+        self.assertEqual(ir_check.annotate_with_latency({}, ping=None),
+                         {})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -199,3 +199,23 @@ Conclusions recorded:
 - **Fill-ceiling semantics (composer):** the VIP-floor fill judges its constructive country cap against the FLOOR-sized target set (≤ floor/2 per country), and the served set's 50% ceiling is enforced exactly afterwards. The earlier instantaneous-pool rule deadlocked an empty pool (the first add is always 1-of-1) — precisely the Tier-1-empty case the floor exists for; found live in Gate-IR's first (neutral) cycle, with the last-known-good guard keeping the previous VIP serving throughout.
 - **Gate-IR controls:** the control pair is attempted twice before the stage degrades to neutral, and the control verdicts are recorded in the run stats (`ir_counts.controls`) so a neutral cycle is diagnosable from the stats alone.
 - **Rescue sourcing (clarifies the Proton amendment above):** `pick_rescue` draws from the served pools PLUS the field-verified fronting candidates of the VIP-eligible set, gathered before the Gate-IR Tier-1 gate — rescue trust is field truth (works ≥3), the same override Tier 1 grants. All other rescue rules unchanged.
+
+## Field iteration 3 — field feedback #6, quality-gated VIP floor, Gate-IR latency ranking (Agent: Rick)
+
+### Field feedback #6 (wolf, 2026-11-20 — the filled VIP set of 8, tested on MOBILE/4.5G in Iran, peak hour)
+Per-key results (v2rayNG real delay): the CF-fronted VMess trio → **574 / 586 / 624 ms** (working, slow); SS CA 149.22.95.183:443 → **987 ms** (working, slow); VLESS US 107.191.58.x:443 (ws/REALITY) → **dead**; SS FR 79.137.99.x:19999 → **dead**; SS CA 158.51.121.x:19999 → **dead**; the 8th member (VMess CA :1270) was cut off in the screenshot — unreported, no feedback recorded either way. Wolf's verdict: only 4 of 8 work, all of them slow — quality too low.
+Actions taken the same day:
+- **Feedback seeded in the KV store (read-back verified):** dead reports for the three dead keys (bot format; quarantine until a later verify run re-passes them, per the standing lifecycle); works-with-latency observations (`obs`, mobile, peak hour) for the trio and the CA SS, works counters incremented — the CA SS now holds works 5, the trio keys works 4.
+- **REALITY's field record worsens:** this VLESS ws/REALITY death extends the class record that stood at 0/13 from field test #2 — direct REALITY has still never worked in any of wolf's Iran tests.
+
+### Root-cause fix — the VIP floor is now quality-gated (composer fill tiers)
+The floor's Tier 2/Tier 3 fill had resurrected weak previous-series members (a REALITY key, two SS on :19999, a VMess on :1270) — supply that met the letter of the fill rules and none of the field evidence. The fill tiers now admit only the **field-proven profile** (`fill_profile_reason` in the composer; refusals counted by reason in every compose summary as `vip_fill_refused`):
+- front classes 0 (CF-IP WS+TLS) and 1 (domain WS+TLS): always allowed;
+- plain SS (class 2): only on port 443, or when the endpoint is itself field-verified — per key (works ≥3) or per exact host:port (a young presentation key on a proven host:port inherits the endpoint's credit; the proven SS@19999 is the standing example);
+- REALITY (classes 3/4): excluded unless the specific key is field-verified — the Hysteria2 rule, mirrored;
+- any config on a non-standard port (not 443, not the CF ladder 2053/2096/8443/2083/2087): excluded unless the specific key is field-verified (the :1270 case);
+- remaining classes: excluded unless field-verified.
+**Tier 1 composition is unchanged.** Consequence, implemented honestly: if profile-clean fill cannot reach 8, the composer serves the honest number and logs `vip_floor_shortfall` with `vip_floor_shortfall_reason` (`profile_gate_refused_<n>` vs `supply_exhausted`). This refines wolf's floor directive per his FF6 quality verdict — the floor stands, but never again at the price of resurrected weak members.
+
+### Gate-IR — Iran-side latency ranking (R6.1 extension)
+Gate-IR now also records an Iran-side **ping latency** per checked endpoint (`ir_latency_ms` in the run stats): Globalping ping from an Iran probe, check-host ping as the alternative (`ir_check.annotate_with_latency`; per-host caching, same budget discipline; `ir_counts.latency_measured` reports coverage). The composer ranks by it **within** the existing order — after the field-verified tier and the front class, before source stability (`compose.rank_items`). Missing latency is neutral: it sorts after measured values inside the same tier/class, is never a penalty beyond ordering, and never an exclusion. The latency stage has no controls of its own and cannot change any reachability verdict — the controls + fail-open discipline of the verdict stage is untouched.

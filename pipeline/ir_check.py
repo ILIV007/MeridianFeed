@@ -33,6 +33,16 @@ and UDP protocols (Hysteria2) are out of its reach entirely — those
 stay governed by field feedback. Both APIs are used keyless at this
 volume; all calls happen on the Actions runner; verdicts are cached
 per host:port within a run and total added runtime is bounded.
+
+Field iteration 3 (2026-11-20) adds an Iran-side PING latency per
+endpoint (annotate_with_latency): wolf's field test #6 showed the
+US-runner latency says nothing about speed from Iran — the working
+VIP members measured 574–987 ms real delay from Iranian mobile at
+peak hour. The ping RTT from an Iranian probe is the composer's
+ranking signal within the field-verified/front-class order. It is a
+ranking signal ONLY: missing latency is neutral (never a penalty,
+never an exclusion), and the ping stage carries no controls of its
+own — it cannot change any reachability verdict.
 """
 import json
 import os
@@ -295,6 +305,127 @@ def annotate(targets, budget_s=DEFAULT_BUDGET_S, workers=DEFAULT_WORKERS,
         return {key: None for key in targets}, "neutral_error", counts
     counts["controls"] = dict(LAST_CONTROLS)
     return verdicts, "ok", counts
+
+
+# ------------------------------------------------- Iran-side latency
+# Ping RTT from an Iranian probe, per endpoint. Globalping's ping
+# measurement reports per-packet timings (min/avg); check-host's
+# check-ping reports per-attempt connect times from the Tehran node.
+# Either source is accepted; a failure to measure is None (neutral).
+
+def ping_globalping(host, deadline=GP_POLL_DEADLINE_S):
+    """One Globalping ping measurement from an Iran-located probe.
+    Returns the average RTT in ms (float) or None."""
+    payload = {"type": "ping", "target": host,
+               "locations": [{"country": "IR", "limit": 1}],
+               "measurementOptions": {"packets": 3}}
+    try:
+        created = _http_json(GLOBALPING_BASE + "/measurements",
+                             data=payload)
+        measurement_id = created.get("id")
+        if not measurement_id:
+            return None
+    except Exception:
+        return None
+    end = time.monotonic() + deadline
+    while time.monotonic() < end:
+        time.sleep(2.5)
+        try:
+            result = _http_json("%s/measurements/%s"
+                                % (GLOBALPING_BASE, measurement_id))
+        except Exception:
+            continue
+        if result.get("status") not in ("finished", "failed"):
+            continue
+        results = result.get("results") or []
+        if not results:
+            return None
+        stats = (results[0].get("result") or {}).get("stats") or {}
+        avg = stats.get("avg")
+        if isinstance(avg, (int, float)) and avg > 0:
+            return float(avg)
+        return None
+    return None
+
+
+def ping_check_host(host, node=TEHRAN_NODE, deadline=POLL_DEADLINE_S):
+    """One check-host ping from the Tehran node. Returns the mean
+    per-attempt time in ms (float) or None."""
+    try:
+        _pace()
+        created = _http_json("%s/check-ping?host=%s&node=%s" % (
+            CHECK_HOST_BASE, urllib.request.quote(host, safe=""), node))
+        request_id = created.get("request_id")
+        if not request_id:
+            return None
+    except Exception:
+        return None
+    end = time.monotonic() + deadline
+    while time.monotonic() < end:
+        time.sleep(2.0)
+        try:
+            result = _http_json("%s/check-result/%s"
+                                % (CHECK_HOST_BASE, request_id))
+        except Exception:
+            continue
+        entry = result.get(node) if isinstance(result, dict) else None
+        if not entry:
+            continue  # node has not reported yet
+        attempts = entry[0] if isinstance(entry, list) and entry else []
+        times = [a["time"] for a in attempts if isinstance(a, dict)
+                 and isinstance(a.get("time"), (int, float))]
+        if times:
+            return sum(times) / len(times) * 1000.0
+        return None  # reported without timings: inconclusive
+    return None
+
+
+def endpoint_latency(host, gp=ping_globalping, ch=ping_check_host):
+    """Iran-side ping RTT (ms) for one endpoint's host. Globalping
+    first (its ping reports clean per-packet stats); check-host ping
+    as the alternative. None when neither can measure — neutral."""
+    value = gp(host)
+    if value is not None:
+        return value
+    return ch(host)
+
+
+def annotate_with_latency(targets, latencies=None,
+                          budget_s=DEFAULT_BUDGET_S,
+                          workers=DEFAULT_WORKERS, ping=None):
+    """Measure Iran-side ping latency for {key: (host, port)}.
+
+    Returns {key: ms-or-None} for every input key, cached per unique
+    host, bounded by budget_s. `latencies` may carry latencies an
+    earlier stage already measured per key (e.g. piggybacked on a
+    probe) — those are reused and never re-measured. This stage has
+    NO controls and changes NO verdict: it only ranks."""
+    if ping is None:
+        ping = endpoint_latency
+    latencies = latencies or {}
+    out = {key: latencies.get(key) for key in targets}
+    hosts = {}
+    for key, (host, _port) in targets.items():
+        if out[key] is None:
+            hosts.setdefault(host, []).append(key)
+    if not hosts:
+        return out
+    deadline = time.monotonic() + budget_s
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(ping, host): host for host in hosts}
+            for future, host in futures.items():
+                remaining = deadline - time.monotonic()
+                try:
+                    value = future.result(timeout=max(remaining, 0.1))
+                except Exception:
+                    value = None
+                if value is not None:
+                    for key in hosts[host]:
+                        out[key] = value
+    except Exception:
+        pass  # latency is best-effort ranking data, never fatal
+    return out
 
 
 def stage_from_env():
