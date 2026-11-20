@@ -233,5 +233,150 @@ class LatencyTests(unittest.TestCase):
                          {})
 
 
+class AtlasVerdictTests(unittest.TestCase):
+    """The third opinion (RIPE Atlas): it can confirm a failure or
+    prove reachability, but — exactly like Globalping — its failure
+    alone never condemns."""
+
+    def test_atlas_and_globalping_failures_agree_condemn(self):
+        ch = scripted(None)          # check-host silent
+        gp = scripted(False)
+        at = scripted(False)
+        self.assertIs(ir_check.endpoint_verdict("h", 443, ch, gp, at),
+                      False)
+
+    def test_atlas_failure_alone_is_neutral(self):
+        ch = scripted(None)
+        gp = scripted(None)
+        at = scripted(False)
+        self.assertIsNone(ir_check.endpoint_verdict("h", 443, ch, gp, at))
+
+    def test_atlas_confirms_checkhost_failure(self):
+        ch = scripted(False, None)   # one failure, retry inconclusive
+        gp = scripted(None)
+        at = scripted(False)
+        self.assertIs(ir_check.endpoint_verdict("h", 443, ch, gp, at),
+                      False)
+
+    def test_atlas_success_proves_reachability(self):
+        ch = scripted(False, None)
+        gp = scripted(None)
+        at = scripted(True)
+        self.assertIs(ir_check.endpoint_verdict("h", 443, ch, gp, at),
+                      True)
+
+    def test_two_failures_condemn_before_later_opinions(self):
+        # Sequential discipline (same as the check-host/Globalping
+        # precedent): once two failures agree, the verdict is False
+        # and later opinions are not consulted.
+        ch = scripted(False, None)
+        gp = scripted(False)
+        at = scripted(True)
+        self.assertIs(ir_check.endpoint_verdict("h", 443, ch, gp, at),
+                      False)
+        self.assertEqual(len(at.calls), 0)
+
+    def test_atlas_silent_without_key(self):
+        saved = os.environ.pop("RIPE_ATLAS_KEY", None)
+        try:
+            self.assertIsNone(ir_check.probe_atlas("1.1.1.1", 443))
+        finally:
+            if saved is not None:
+                os.environ["RIPE_ATLAS_KEY"] = saved
+
+    def test_atlas_census_parses_count(self):
+        ir_check._ATLAS_CENSUS.update({"done": False, "count": None})
+        real = ir_check._http_json
+        ir_check._http_json = lambda url, **kw: {"count": 89}
+        try:
+            self.assertEqual(ir_check.atlas_census(), 89)
+        finally:
+            ir_check._http_json = real
+            ir_check._ATLAS_CENSUS.update({"done": False, "count": None})
+
+
+class _FakeTime:
+    """monotonic() that advances on every call so poll loops exit."""
+
+    def __init__(self):
+        self.t = 0.0
+
+    def monotonic(self):
+        self.t += 7.0
+        return self.t
+
+    def sleep(self, seconds):
+        self.t += seconds
+
+
+class MultiNodeProbeTests(unittest.TestCase):
+    """probe_check_host aggregates the Iranian nodes of ONE request:
+    any success wins; >= 2 node failures condemn; sparse reports are
+    inconclusive."""
+
+    NODES = ["ir1.node.check-host.net", "ir2.node.check-host.net",
+             "ir3.node.check-host.net", "ir6.node.check-host.net"]
+
+    def _run_probe(self, result):
+        real_http, real_time = ir_check._http_json, ir_check.time
+        state = {"created": False}
+
+        def fake_http(url, **kw):
+            if "check-tcp" in url:
+                state["created"] = True
+                return {"request_id": "r1"}
+            return result
+
+        ir_check._http_json = fake_http
+        ir_check.time = _FakeTime()
+        try:
+            return ir_check.probe_check_host("203.0.113.7", 443,
+                                             nodes=self.NODES)
+        finally:
+            ir_check._http_json, ir_check.time = real_http, real_time
+
+    def test_any_node_success_is_reachable(self):
+        result = {self.NODES[0]: [[{"error": "timeout"}]],
+                  self.NODES[1]: [[{"time": 0.05}]]}
+        self.assertIs(self._run_probe(result), True)
+
+    def test_two_node_failures_condemn(self):
+        result = {self.NODES[0]: [[{"error": "timeout"}]],
+                  self.NODES[2]: [[{"error": "refused"}]]}
+        self.assertIs(self._run_probe(result), False)
+
+    def test_single_node_failure_is_inconclusive(self):
+        result = {self.NODES[0]: [[{"error": "timeout"}]]}
+        self.assertIsNone(self._run_probe(result))
+
+
+class GlobalpingAggregationTests(unittest.TestCase):
+    def _run_gp(self, results):
+        real_http, real_time = ir_check._http_json, ir_check.time
+
+        def fake_http(url, **kw):
+            if url.endswith("/measurements"):
+                return {"id": "m1"}
+            return {"status": "finished", "results": results}
+
+        ir_check._http_json = fake_http
+        ir_check.time = _FakeTime()
+        try:
+            return ir_check.probe_globalping("203.0.113.7", 443)
+        finally:
+            ir_check._http_json, ir_check.time = real_http, real_time
+
+    def test_one_probe_success_among_failures_wins(self):
+        results = [{"result": {"status": "failed"}},
+                   {"result": {"statusCode": 403}},
+                   {"result": {"status": "failed"}}]
+        self.assertIs(self._run_gp(results), True)
+
+    def test_all_probes_failed_is_failure(self):
+        results = [{"result": {"status": "failed"}},
+                   {"result": {"status": "failed"}}]
+        self.assertIs(self._run_gp(results), False)
+
+
 if __name__ == "__main__":
     unittest.main()

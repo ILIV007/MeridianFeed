@@ -71,6 +71,24 @@
    "type": "github-raw",
    "url": "https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/verified/configs.txt",
    "volatility": "volatile"
+  },
+  {
+   "enabled": true,
+   "facet": "fa-collector",
+   "name": "alireza-collector",
+   "notes": "Supply-bias adoption (corrected programme, 2026-11-20): trialled for CF-fronted/profile supply. Measured at adoption: 2,400 unique keys in one fetch (largest single supply), field-profile share 0.172 and classes-0/1 share 0.142 — ~2.4x the profile share of the best list incumbent (radikal 0.072, NoMoreWalls 0.066, ermaozi 0.072). Survival (gh mode): 0.64 @1h / 0.34 @24h — a rotating-list class source like bahemmat, hence volatility=volatile; every config re-enters the full Gate 1-3 pipeline and no ordering is inherited. Governance tracks its yield; the weekly survival audit judges it.",
+   "type": "github-raw",
+   "url": "https://raw.githubusercontent.com/alireza786786/Free-V2ray-Configs/main/all_servers.txt",
+   "volatility": "volatile"
+  },
+  {
+   "enabled": true,
+   "facet": "cf-fronted",
+   "name": "jafar-cf",
+   "notes": "Supply-bias adoption (corrected programme, 2026-11-20): predominantly CF-fronted collection — measured at adoption: 9 of 12 unique keys are class 0 (CF-anycast-IP WS+TLS), classes-0/1 share 0.75, profile share 0.75 (the densest profile source measured). Tiny volume by design (upstream tests before publishing, ~20-min cadence); survival 0.95 @1h / 0.43 @24h on a small base. Its jafar_ultimate.txt sibling measured 0 valid keys and was NOT adopted. Full pipeline applies; governance tracks yield.",
+   "type": "github-raw",
+   "url": "https://raw.githubusercontent.com/jafarm83/ConfigV2Ray/main/jafar.txt",
+   "volatility": "stable"
   }
  ]
 }

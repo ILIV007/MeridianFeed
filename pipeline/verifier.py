@@ -87,7 +87,9 @@ def pass_key(record):
 # ---------------------------------------------------------------- sampling
 
 def collect_candidates(registry_path, limit):
-    """Fetch sources via the collector, dedup, round-robin sample.
+    """Fetch sources via the collector, dedup, stratified sample
+    (profile stratum in full + `limit` of the other stratum — see
+    stratified_sample).
 
     Returns (sample, totals) where sample is a list of (record, uri)
     pairs — the uri lives in memory only and is never serialised.
@@ -148,24 +150,85 @@ def collect_candidates(registry_path, limit):
                     seen[vkey] = (vrec, vuri)
                     entries.append((vrec, vuri))
         per_source.append(entries)
-    sample = []
-    idx = 0
-    while len(sample) < limit:
-        progressed = False
-        for entries in per_source:
-            if idx < len(entries):
-                sample.append(entries[idx])
-                progressed = True
-                if len(sample) >= limit:
-                    break
-        if not progressed:
-            break
-        idx += 1
+    sample, strata = stratified_sample(per_source, limit)
     totals = {"fetched": fetched, "gate1_valid": valid,
               "unique": len(seen), "sampled": len(sample),
               "identity_duplicates": identity_dups,
               "shape_rejected": shape_rejected}
+    totals.update(strata)
     return sample, totals
+
+
+# ------------------------------------------------------- stratified sample
+# Profile-first stratified sampling (wolf's addendum, 2026-11-20):
+# the old per-source round-robin spent most of the Gate-3 budget on
+# classes that die in Iran anyway (REALITY, bare direct-IP, odd
+# ports). The sample is now built in two strata:
+#   1. PROFILE stratum — every candidate matching the field-proven
+#      profile (front classes 0/1 WS+TLS; plain SS on 443 or a
+#      CF-ladder port) is verified EVERY cycle, up to
+#      PROFILE_SAMPLE_CAP (measured ~300 profile candidates at the
+#      2026-11-20 pool scale; the cap only bounds pathological
+#      growth, and truncation is per-source round-robin so no
+#      source's profile supply is starved by another's).
+#   2. OTHER stratum — the caller's `limit` budget samples the
+#      remaining classes exactly as before (per-source round-robin);
+#      they feed the channel proving ground and the field-feedback
+#      loop, where a class can still earn its way up.
+# Before/after yield is visible per run in stats.input (unique /
+# sampled per stratum) and stats.gate3 (passed per stratum).
+PROFILE_SAMPLE_CAP = 600
+PROFILE_PORTS = frozenset({443, 2053, 2096, 8443, 2083, 2087})
+
+
+def is_profile_candidate(record, uri):
+    """The field-proven profile at SAMPLING level (front class +
+    port only — the composer's VIP profile gate adds the
+    field-verified exceptions on top of the same classes)."""
+    front = collector.front_class(record, uri)
+    if front in (0, 1):
+        return True
+    return front == 2 and record["port"] in PROFILE_PORTS
+
+
+def _round_robin(lists, cap):
+    out, idx = [], 0
+    while len(out) < cap:
+        progressed = False
+        for entries in lists:
+            if idx < len(entries):
+                out.append(entries[idx])
+                progressed = True
+                if len(out) >= cap:
+                    break
+        if not progressed:
+            break
+        idx += 1
+    return out
+
+
+def stratified_sample(per_source, limit):
+    """(sample, strata-stats) — profile stratum first (full, capped),
+    then the other stratum up to `limit`. Per-source round-robin
+    inside each stratum preserves source diversity."""
+    profile_lists, other_lists = [], []
+    n_profile = n_other = 0
+    for entries in per_source:
+        prof = [e for e in entries if is_profile_candidate(*e)]
+        oth = [e for e in entries if not is_profile_candidate(*e)]
+        profile_lists.append(prof)
+        other_lists.append(oth)
+        n_profile += len(prof)
+        n_other += len(oth)
+    sample = _round_robin(profile_lists, PROFILE_SAMPLE_CAP)
+    sampled_profile = len(sample)
+    sample += _round_robin(other_lists, limit)
+    return sample, {"unique_profile": n_profile,
+                    "unique_other": n_other,
+                    "sampled_profile": sampled_profile,
+                    "sampled_other": len(sample) - sampled_profile,
+                    "sample_budget": {"other_limit": limit,
+                                      "profile_cap": PROFILE_SAMPLE_CAP}}
 
 
 # ------------------------------------------------------------- rebranding
@@ -953,7 +1016,7 @@ def build_uri_map(pairs):
 
 def verify(registry_path, sing_box, limit, workers, gate2_workers,
            map_out=None):
-    stats = {"tool": "meridianfeed-verifier", "verifier_version": "1.2.0",
+    stats = {"tool": "meridianfeed-verifier", "verifier_version": "1.3.0",
              "sing_box": bool(sing_box), "passes": [],
              "limits": {"sample": limit, "gate3_workers": workers}}
     sample, totals = collect_candidates(registry_path, limit)
@@ -992,6 +1055,7 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers,
     # Gate 3 (bounded concurrency — sing-box processes are the bottleneck)
     results, fail_reasons = [], {}
     countries, protocols_pass = {}, {}
+    strata_pass = {"profile": 0, "other": 0}
     pass_records = []
     ir_targets = {}  # Gate-IR candidates: passes meeting the VIP floors
 
@@ -1001,15 +1065,22 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers,
         if outbound is None:
             return record, {"pass": False, "reason": "build_none",
                             "latency_ms": None, "speed_mbps": None,
-                            "egress_country": None}
-        return record, run_tunnel(outbound, sing_box, direct_ip)
+                            "egress_country": None}, \
+                collector.front_class(record, uri)
+        return record, run_tunnel(outbound, sing_box, direct_ip), \
+            collector.front_class(record, uri)
 
     with concurrent.futures.ThreadPoolExecutor(workers) as pool:
         futures = [pool.submit(_one, pair) for pair in survivors]
         for future in concurrent.futures.as_completed(futures):
-            record, outcome = future.result()
+            record, outcome, front = future.result()
             if outcome["pass"]:
                 results.append(outcome)
+                if front in (0, 1) or (front == 2 and record["port"]
+                                       in PROFILE_PORTS):
+                    strata_pass["profile"] += 1
+                else:
+                    strata_pass["other"] += 1
                 protocols_pass[record["protocol"]] = \
                     protocols_pass.get(record["protocol"], 0) + 1
                 if outcome["egress_country"]:
@@ -1018,6 +1089,7 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers,
                 pass_records.append({
                     "key_hash": pass_key(record),
                     "protocol": record["protocol"],
+                    "front": front,
                     "source": record.get("source", ""),
                     "egress_country": outcome["egress_country"],
                     "latency_ms": outcome["latency_ms"],
@@ -1051,9 +1123,12 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers,
         "speed_mbps": distribution([r["speed_mbps"] for r in results
                                     if r["speed_mbps"] is not None]),
         "public_criteria_met_single_run": len(public_ready),
-        "note": "Tier assignment still requires the strict repeat passes "
-                "(public: a 2nd run >=15 min later; VIP: 3 consecutive "
-                "cycles) — a single run never publishes anything."}
+        "passed_profile_class": strata_pass["profile"],
+        "passed_other_class": strata_pass["other"],
+        "note": "Tier assignment still requires strict repeat passes "
+                "(public: a 2nd run >=15 min later; VIP core: passes in "
+                "the 2 freshest runs + VIP floors + Gate-IR + the field "
+                "profile) — a single run never publishes anything."}
     stats["passes"] = pass_records
     # Gate-IR (Plan Rev.2 R6.1): Iran-reachability verdicts for the
     # VIP-floor passes only (API economy). Fail-open-to-neutral: any
@@ -1074,6 +1149,14 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers,
             ir_verdicts, ir_stage, ir_counts = {}, "neutral_error", {}
         stats["ir_stage"] = ir_stage
         stats["ir_counts"] = ir_counts
+        # RIPE Atlas census (keyless): how many Iranian probes the
+        # third verdict source could use. Recorded every run so a
+        # silent Atlas (no RIPE_ATLAS_KEY on the runner) is visible
+        # as "census > 0, opinions pending key", not as absence.
+        try:
+            stats["ir_counts"]["atlas_ir_probes"] = ir_check.atlas_census()
+        except Exception:
+            stats["ir_counts"]["atlas_ir_probes"] = None
         # Iran-side ping latency (field iteration 3): a composer
         # RANKING signal only — measured for the same VIP-floor
         # targets, missing values stay null (neutral), and a failure

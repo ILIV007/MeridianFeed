@@ -256,5 +256,60 @@ class AbFinalmaskSmokeTests(unittest.TestCase):
         self.assertEqual(stats["per_subject"][0]["enhanced"], False)
 
 
+class StratifiedSampleTests(unittest.TestCase):
+    """Profile-first stratified sampling: every profile-class
+    candidate is verified each cycle; the other classes share the
+    caller's limit budget (channel proving ground)."""
+
+    def _pair(self, protocol, server, port, uri):
+        return ({"protocol": protocol, "server": server, "port": port,
+                 "source": "test"}, uri)
+
+    def setUp(self):
+        self.prof_cf = self._pair(
+            "vless", "172.67.190.164", 443,
+            "vless://u@172.67.190.164:443?type=ws&security=tls#x")
+        self.prof_ss = self._pair(
+            "ss", "203.0.113.9", 443,
+            "ss://YWVzLTI1Ni1nY206cA@203.0.113.9:443#x")
+        self.other_reality = self._pair(
+            "vless", "203.0.113.10", 443,
+            "vless://u@203.0.113.10:443?type=tcp&security=reality"
+            "&sni=a.example#x")
+        self.other_ss = self._pair(
+            "ss", "203.0.113.11", 19999,
+            "ss://YWVzLTI1Ni1nY206cA@203.0.113.11:19999#x")
+
+    def test_profile_stratum_is_fully_sampled_first(self):
+        per_source = [[self.other_reality, self.prof_cf,
+                       self.other_ss, self.prof_ss]]
+        sample, strata = verifier.stratified_sample(per_source, 1)
+        self.assertIn(self.prof_cf, sample)
+        self.assertIn(self.prof_ss, sample)
+        self.assertEqual(strata["unique_profile"], 2)
+        self.assertEqual(strata["unique_other"], 2)
+        self.assertEqual(strata["sampled_profile"], 2)
+        self.assertEqual(strata["sampled_other"], 1)
+        self.assertEqual(len(sample), 3)
+
+    def test_profile_cap_bounds_pathological_growth(self):
+        real_cap = verifier.PROFILE_SAMPLE_CAP
+        verifier.PROFILE_SAMPLE_CAP = 3
+        try:
+            per_source = [[self.prof_cf] * 5]
+            sample, strata = verifier.stratified_sample(per_source, 0)
+            self.assertEqual(strata["sampled_profile"], 3)
+            self.assertEqual(len(sample), 3)
+        finally:
+            verifier.PROFILE_SAMPLE_CAP = real_cap
+
+    def test_is_profile_candidate_classes(self):
+        self.assertTrue(verifier.is_profile_candidate(*self.prof_cf))
+        self.assertTrue(verifier.is_profile_candidate(*self.prof_ss))
+        self.assertFalse(
+            verifier.is_profile_candidate(*self.other_reality))
+        self.assertFalse(verifier.is_profile_candidate(*self.other_ss))
+
+
 if __name__ == "__main__":
     unittest.main()

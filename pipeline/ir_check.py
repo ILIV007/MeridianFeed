@@ -7,16 +7,28 @@ Gate-3 passes meeting the VIP floors (the composer's Tier-1 and
 Tier-3 candidate material) — by asking external probe networks to
 TCP-connect to each candidate's endpoint (host:port) from Iran:
 
-- Primary: check-host.net, Tehran node (ir1.node.check-host.net).
-  Async API: create a check, poll for the result.
+- Primary: check-host.net, from FOUR Iranian nodes in one request
+  (ir1 Tehran / ir2 Isfahan / ir3 Shiraz / ir6 Qom — different
+  cities and ASNs, so a verdict samples several Iranian networks,
+  not one datacenter). Async API: create a check, poll for the
+  result. One success anywhere is reachable; a failure verdict from
+  this probe alone already embodies >= 2 agreeing node failures.
 - Second opinion: Globalping probes located in Iran (HTTPS probe —
-  a completed TLS handshake + any HTTP response counts as reachable).
+  a completed TLS handshake + any HTTP response counts as reachable;
+  up to 3 probes per measurement, any success wins).
+- Third opinion: RIPE Atlas probes in Iran (89 connected at the
+  2026-11-20 census). Atlas has no generic TCP-connect measurement,
+  so its opinion is ICMP host-reachability; measurement creation
+  needs a RIPE Atlas API key (RIPE_ATLAS_KEY env on the runner) —
+  without one the source stays silent (None) and the census count
+  is still recorded for diagnosability.
 
 Verdict discipline (fail-open-to-neutral, always):
 - A reachable verdict needs one success.
 - An UNREACHABLE verdict needs confirmation: two agreeing failures
-  (a second check-host attempt, or a Globalping failure agreeing
-  with the first). A single node hiccup never condemns a config.
+  across the independent attempts/sources (a second check-host
+  attempt, or a Globalping / Atlas failure agreeing). A single
+  source's failure never condemns a config on its own.
 - Anything inconclusive is None (neutral), never False.
 
 Controls run first, with the same discipline as Gate 3: a positive
@@ -53,8 +65,14 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 TEHRAN_NODE = "ir1.node.check-host.net"
+# All Iranian check-host nodes (census 2026-11-20): Tehran x4,
+# Isfahan, Shiraz x2, Qom — the verdict probe uses one node per
+# city/ASN family for network diversity.
+IR_NODES = ["ir1.node.check-host.net", "ir2.node.check-host.net",
+            "ir3.node.check-host.net", "ir6.node.check-host.net"]
 CHECK_HOST_BASE = "https://check-host.net"
 GLOBALPING_BASE = "https://api.globalping.io/v1"
+ATLAS_BASE = "https://atlas.ripe.net/api/v2"
 USER_AGENT = "MeridianFeed-GateIR/1.0 (+https://github.com/ILIV007/MeridianFeed)"
 
 POSITIVE_CONTROL = ("1.1.1.1", 443)      # Cloudflare anycast, must pass
@@ -87,8 +105,10 @@ def _pace():
         _pace_last[0] = time.monotonic()
 
 
-def _http_json(url, data=None, timeout=15.0):
+def _http_json(url, data=None, timeout=15.0, headers_extra=None):
     headers = {"Accept": "application/json", "User-Agent": USER_AGENT}
+    if headers_extra:
+        headers.update(headers_extra)
     body = None
     if data is not None:
         body = json.dumps(data).encode("utf-8")
@@ -106,17 +126,35 @@ def _hostport(host, port):
 
 # ------------------------------------------------------------- check-host
 
-def probe_check_host(host, port, node=TEHRAN_NODE,
+def _node_verdict(entry):
+    """One check-host node's report entry -> True / False / None."""
+    if not entry:
+        return None
+    attempts = entry[0] if isinstance(entry, list) and entry else []
+    for attempt in attempts if isinstance(attempts, list) else []:
+        if isinstance(attempt, dict) and "time" in attempt:
+            return True
+        if isinstance(attempt, dict) and "error" in attempt:
+            return False
+    return None
+
+
+def probe_check_host(host, port, nodes=IR_NODES,
                      deadline=POLL_DEADLINE_S):
-    """One check-host TCP check from the Tehran node.
-    Returns True (connected), False (connect failed), None (the API
-    or the node could not produce a verdict in time)."""
+    """One check-host TCP check from the Iranian nodes (one request,
+    every node reports independently). Returns True when ANY node
+    connected, False when >= 2 nodes report connect failures and
+    none succeeded (agreeing failures across independent Iranian
+    networks), None otherwise (too few reports — inconclusive)."""
+    if isinstance(nodes, str):
+        nodes = [nodes]
     try:
         _pace()
-        created = _http_json("%s/check-tcp?host=%s&node=%s" % (
+        query = "&".join("node=%s" % n for n in nodes)
+        created = _http_json("%s/check-tcp?host=%s&%s" % (
             CHECK_HOST_BASE,
             urllib.request.quote(_hostport(host, port), safe=""),
-            node))
+            query))
         request_id = created.get("request_id")
         if not request_id:
             return None
@@ -130,28 +168,30 @@ def probe_check_host(host, port, node=TEHRAN_NODE,
                                 % (CHECK_HOST_BASE, request_id))
         except Exception:
             continue
-        entry = result.get(node) if isinstance(result, dict) else None
-        if not entry:
-            continue  # node has not reported yet
-        attempts = entry[0] if isinstance(entry, list) and entry else []
-        for attempt in attempts if isinstance(attempts, list) else []:
-            if isinstance(attempt, dict) and "time" in attempt:
-                return True
-            if isinstance(attempt, dict) and "error" in attempt:
-                return False
-        return None  # reported in an unexpected shape: inconclusive
+        if not isinstance(result, dict):
+            continue
+        verdicts = [_node_verdict(result.get(n)) for n in nodes]
+        if any(v is True for v in verdicts):
+            return True
+        fails = sum(1 for v in verdicts if v is False)
+        reported = sum(1 for v in verdicts if v is not None)
+        if fails >= 2:
+            return False
+        if reported == len(nodes):
+            return None  # everyone reported, < 2 failures: mixed air
     return None
 
 
 # ------------------------------------------------------------- globalping
 
 def probe_globalping(host, port, deadline=GP_POLL_DEADLINE_S):
-    """One Globalping HTTPS measurement from an Iran-located probe.
-    A completed TLS handshake with any HTTP status counts as
+    """One Globalping HTTPS measurement from up to 3 Iran-located
+    probes. A completed TLS handshake with any HTTP status counts as
     reachable (the endpoint's application layer is not the question).
-    Returns True / False / None (no IR probe, API error, timeout)."""
+    Any probe's success wins; False only when every reporting probe
+    failed; None otherwise (no IR probe, API error, timeout)."""
     payload = {"type": "http", "target": host,
-               "locations": [{"country": "IR", "limit": 1}],
+               "locations": [{"country": "IR", "limit": 3}],
                "measurementOptions": {
                    "port": int(port), "protocol": "https",
                    "request": {"path": "/", "method": "GET"}}}
@@ -176,39 +216,130 @@ def probe_globalping(host, port, deadline=GP_POLL_DEADLINE_S):
         results = result.get("results") or []
         if not results:
             return None
-        probe_result = results[0].get("result") or {}
-        if probe_result.get("statusCode") is not None:
-            return True
-        if probe_result.get("status") == "failed":
-            return False
+        saw_failure = False
+        for entry in results:
+            probe_result = entry.get("result") or {}
+            if probe_result.get("statusCode") is not None:
+                return True
+            if probe_result.get("status") == "failed":
+                saw_failure = True
+        return False if saw_failure else None
+    return None
+
+
+# ------------------------------------------------------------ ripe atlas
+
+_ATLAS_CENSUS = {"done": False, "count": None}
+
+
+def atlas_census():
+    """Connected RIPE Atlas probes in Iran (keyless public API).
+    Recorded in the run stats so a silent Atlas source is
+    diagnosable: census > 0 + no key = "ready, awaiting key".
+    Cached per process; None when the API cannot be read."""
+    if _ATLAS_CENSUS["done"]:
+        return _ATLAS_CENSUS["count"]
+    _ATLAS_CENSUS["done"] = True
+    try:
+        data = _http_json("%s/probes/?country_code=IR&status=1"
+                          "&page_size=1" % ATLAS_BASE)
+        count = data.get("count")
+        _ATLAS_CENSUS["count"] = int(count) if count is not None else None
+    except Exception:
+        _ATLAS_CENSUS["count"] = None
+    return _ATLAS_CENSUS["count"]
+
+
+def probe_atlas(host, port, deadline=GP_POLL_DEADLINE_S):
+    """One RIPE Atlas ping measurement from Iranian probes (up to 3).
+    Atlas offers no generic TCP-connect, so this is a host-level
+    reachability opinion: True when any probe receives replies,
+    False when every reporting probe received none, None otherwise.
+    Requires RIPE_ATLAS_KEY in the environment (measurement creation
+    is authenticated); without a key the source stays silent."""
+    key = os.environ.get("RIPE_ATLAS_KEY")
+    if not key:
         return None
+    auth = {"Authorization": "Key " + key}
+    payload = {"definitions": [{
+                   "type": "ping", "af": 4, "target": host,
+                   "description": "MeridianFeed Gate-IR", "packets": 3}],
+               "probes": [{"type": "country", "value": "IR",
+                           "requested": 3}],
+               "is_oneoff": True}
+    try:
+        created = _http_json(ATLAS_BASE + "/measurements/",
+                             data=payload, headers_extra=auth)
+        measurement_id = created.get("id")
+        if not measurement_id:
+            return None
+    except Exception:
+        return None
+    end = time.monotonic() + deadline
+    while time.monotonic() < end:
+        time.sleep(3.0)
+        try:
+            result = _http_json("%s/measurements/%s/"
+                                % (ATLAS_BASE, measurement_id),
+                                headers_extra=auth)
+        except Exception:
+            continue
+        status = (result.get("status") or {}).get("name", "")
+        if status not in ("Stopped", "Failed", "No suitable probes"):
+            continue
+        results = result.get("result") or []
+        if not results:
+            return None
+        saw_report = False
+        for entry in results:
+            if not isinstance(entry, dict):
+                continue
+            rcvd = entry.get("rcvd")
+            if rcvd is None:
+                continue
+            saw_report = True
+            if rcvd > 0:
+                return True
+        return False if saw_report else None
     return None
 
 
 # ------------------------------------------------------- verdict logic
 
-def endpoint_verdict(host, port, ch=probe_check_host, gp=probe_globalping):
+def _no_opinion(host, port):
+    return None
+
+
+def endpoint_verdict(host, port, ch=probe_check_host, gp=probe_globalping,
+                     at=None):
     """Confirmed verdict for one endpoint. A False (unreachable)
-    verdict requires two agreeing failures; a success at any point
-    wins; anything else is None (neutral)."""
+    verdict requires two agreeing failures across the independent
+    attempts/sources; a success at any point wins; anything else is
+    None (neutral). `at` is the RIPE Atlas opinion; it defaults to
+    silent so a single non-check-host failure can never condemn on
+    its own — condemnation needs a second agreeing failure."""
+    if at is None:
+        at = _no_opinion
     first = ch(host, port)
     if first is True:
         return True
-    if first is None:
-        # check-host unavailable: Globalping may still prove
-        # reachability, but its failure alone never condemns.
-        return True if gp(host, port) is True else None
-    # first is False — confirmation required before condemning.
-    second = ch(host, port)
-    if second is True:
-        return True
-    if second is False:
-        return False
-    opinion = gp(host, port)
-    if opinion is False:
-        return False
-    if opinion is True:
-        return True
+    fails = 0
+    if first is False:
+        # Confirmation required before condemning.
+        second = ch(host, port)
+        if second is True:
+            return True
+        if second is False:
+            return False
+        fails = 1
+    for probe in (gp, at):
+        opinion = probe(host, port)
+        if opinion is True:
+            return True
+        if opinion is False:
+            fails += 1
+            if fails >= 2:
+                return False
     return None
 
 
@@ -254,7 +385,8 @@ def controls_ok(ch=probe_check_host, gp=probe_globalping):
 
 
 def annotate(targets, budget_s=DEFAULT_BUDGET_S, workers=DEFAULT_WORKERS,
-             ch=probe_check_host, gp=probe_globalping, controls=None):
+             ch=probe_check_host, gp=probe_globalping, at=probe_atlas,
+             controls=None):
     """Annotate {key: (host, port)} with Iran-reachability verdicts.
 
     Returns (verdicts, stage, counts): verdicts maps every input key
@@ -265,7 +397,8 @@ def annotate(targets, budget_s=DEFAULT_BUDGET_S, workers=DEFAULT_WORKERS,
     the budget stay None (neutral)."""
     verdicts = {key: None for key in targets}
     counts = {"endpoints": 0, "reachable": 0, "unreachable": 0,
-              "neutral": 0}
+              "neutral": 0,
+              "atlas_key": bool(os.environ.get("RIPE_ATLAS_KEY"))}
     if not targets:
         return verdicts, "ok", counts
     try:
@@ -284,7 +417,7 @@ def annotate(targets, budget_s=DEFAULT_BUDGET_S, workers=DEFAULT_WORKERS,
     deadline = time.monotonic() + budget_s
     try:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(endpoint_verdict, host, port, ch, gp):
+            futures = {pool.submit(endpoint_verdict, host, port, ch, gp, at):
                        (host, port) for host, port in endpoints}
             for future, endpoint in futures.items():
                 remaining = deadline - time.monotonic()
