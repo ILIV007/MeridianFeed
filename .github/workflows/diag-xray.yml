@@ -1,10 +1,9 @@
 name: diag-xray
 
-# TEMPORARY diagnostic (Plan Rev.2 R2): why does the Xray loopback
-# control fail probe204 on runners while passing everywhere locally?
-# Stages isolate: controls alone / with real direct_ip / manual curl
-# through the tunnel / http-inbound+freedom only / exception repr.
-# Delete this workflow when the A/B decision is recorded.
+# TEMPORARY diagnostic #2 (Plan Rev.2 R2): the Xray loopback pair
+# hangs on runners (ports listen, no logs, curl+urllib time out) but
+# works locally. Stages: origin direct / freedom-only client /
+# vless pair with debug logs + socket states. Delete when done.
 
 on:
   workflow_dispatch:
@@ -36,31 +35,62 @@ jobs:
           sudo install -m 0755 /tmp/xray-bin/xray /usr/local/bin/xray
           xray version
 
-      - name: Staged diagnosis
+      - name: Staged diagnosis 2
         run: |
           python3 - <<'PYEOF'
-          import sys, subprocess, time, json
+          import sys, subprocess, time, json, urllib.request
           sys.path.insert(0, "pipeline")
           import verifier
 
           XR = "/usr/local/bin/xray"
+          origin, base = verifier._start_origin()
+          print("origin at", base)
 
-          print("== stage 1: run_xray_controls(xray, None)")
-          r = verifier.run_xray_controls(XR, None)
-          print("   ok:", r["ok"], "| positive:", r["positive"])
+          print("== stage A: direct fetch to origin (no proxy)")
+          try:
+              status, body, ms = verifier._fetch(
+                  urllib.request.build_opener(), base + "/generate_204")
+              print("   direct:", status, round(ms, 1), "ms")
+          except Exception as e:
+              print("   direct EXC:", type(e).__name__, repr(e)[:200])
 
-          print("== stage 2: run_xray_controls(xray, real direct_ip)")
-          dip, _ = verifier.direct_egress()
-          print("   direct_ip:", dip)
-          r = verifier.run_xray_controls(XR, dip)
-          print("   ok:", r["ok"], "| positive:", r["positive"])
+          def run_client(outbound, tag):
+              cport = verifier.free_port()
+              cfg = {"log": {"loglevel": "debug"},
+                     "inbounds": [{"protocol": "http", "tag": "in",
+                                   "listen": "127.0.0.1", "port": cport}],
+                     "outbounds": [outbound]}
+              path = "/tmp/diag_%s.json" % tag
+              with open(path, "w") as fh:
+                  json.dump(cfg, fh)
+              err = open("/tmp/diag_%s.err" % tag, "wb")
+              proc = subprocess.Popen([XR, "run", "-c", path],
+                                      stdout=subprocess.DEVNULL, stderr=err)
+              err.close()
+              print("   [%s] client port %d ready: %s"
+                    % (tag, cport, verifier._wait_port(cport)))
+              return proc, cport
 
-          print("== stage 3: manual pair, exception repr + curl")
+          def try_curl(cport, tag):
+              rc = subprocess.run(
+                  ["curl", "-sS", "-m", "10", "-o", "/dev/null", "-w", "%{http_code}",
+                   "--proxy", "http://127.0.0.1:%d" % cport,
+                   base + "/generate_204"],
+                  capture_output=True, text=True, timeout=30)
+              print("   [%s] curl: %r %s" % (tag, rc.stdout, rc.stderr.strip()[:160]))
+
+          print("== stage B: http inbound -> freedom outbound (no vless)")
+          proc, cport = run_client({"protocol": "freedom", "tag": "proxy"}, "free")
+          try:
+              try_curl(cport, "free")
+          finally:
+              proc.terminate()
+
+          print("== stage C: vless pair, debug logs, socket states")
           import uuid as uuidlib
           token = str(uuidlib.uuid4())
-          origin, base = verifier._start_origin()
           sport = verifier.free_port()
-          server_cfg = {"log": {"loglevel": "warning"},
+          server_cfg = {"log": {"loglevel": "debug"},
                         "inbounds": [{"protocol": "vless", "listen": "127.0.0.1",
                                       "port": sport,
                                       "settings": {"clients": [{"id": token}],
@@ -68,38 +98,46 @@ jobs:
                         "outbounds": [{"protocol": "freedom", "tag": "direct"}]}
           with open("/tmp/diag_server.json", "w") as fh:
               json.dump(server_cfg, fh)
+          serr = open("/tmp/diag_server.err", "wb")
           server = subprocess.Popen([XR, "run", "-c", "/tmp/diag_server.json"],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                    stdout=subprocess.DEVNULL, stderr=serr)
+          serr.close()
           try:
               print("   server port ready:", verifier._wait_port(sport))
               client = {"protocol": "vless", "tag": "proxy",
                         "settings": {"vnext": [{"address": "127.0.0.1", "port": sport,
-                                                "users": [{"id": token, "encryption": "none"}]}]}}
-              cport = verifier.free_port()
-              client_cfg = {"log": {"loglevel": "warning"},
-                            "inbounds": [{"protocol": "http", "tag": "in",
-                                          "listen": "127.0.0.1", "port": cport}],
-                            "outbounds": [client]}
-              with open("/tmp/diag_client.json", "w") as fh:
-                  json.dump(client_cfg, fh)
-              proc = subprocess.Popen([XR, "run", "-c", "/tmp/diag_client.json"],
-                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                                "users": [{"id": token,
+                                                           "encryption": "none"}]}]}}
+              proc, cport = run_client(client, "pair")
               try:
-                  print("   client port ready:", verifier._wait_port(cport))
-                  opener = verifier._proxy_opener(cport)
+                  bg = subprocess.Popen(
+                      ["curl", "-sS", "-m", "25", "-o", "/dev/null", "-w", "%{http_code}",
+                       "--proxy", "http://127.0.0.1:%d" % cport,
+                       base + "/generate_204"],
+                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                  time.sleep(6)
+                  ss = subprocess.run(["ss", "-tnp"], capture_output=True,
+                                      text=True).stdout
+                  print("   sockets during hang:")
+                  for ln in ss.splitlines():
+                      if str(sport) in ln or str(cport) in ln or "127.0.0.1" in ln:
+                          print("     ", ln.strip()[:170])
                   try:
-                      status, body, ms = verifier._fetch(opener, base + "/generate_204")
-                      print("   urllib fetch:", status, round(ms, 1), "ms")
+                      out, errt = bg.communicate(timeout=30)
+                      print("   pair curl:", repr(out), errt.strip()[:160])
                   except Exception as e:
-                      print("   urllib fetch EXC:", type(e).__name__, repr(e)[:300])
-                  rc = subprocess.run(["curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}",
-                                       "--proxy", "http://127.0.0.1:%d" % cport,
-                                       base + "/generate_204"],
-                                      capture_output=True, text=True, timeout=20)
-                  print("   curl fetch:", rc.stdout, rc.stderr.strip()[:200])
+                      print("   pair curl EXC:", type(e).__name__)
+                      bg.kill()
               finally:
                   proc.terminate()
           finally:
               server.terminate()
               origin.shutdown()
+          for tag in ("free", "pair", "server"):
+              try:
+                  tail = open("/tmp/diag_%s.err" % tag, "rb").read()[-1500:]
+                  print("--- %s log tail ---" % tag)
+                  print(tail.decode("utf-8", "replace"))
+              except Exception as e:
+                  print("--- %s log unreadable: %s" % (tag, e))
           PYEOF
