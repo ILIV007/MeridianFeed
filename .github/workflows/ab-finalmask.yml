@@ -1,0 +1,109 @@
+name: ab-finalmask
+
+# Plan Rev.2 R2 — paired A/B of the Enhanced (finalmask) presentation.
+# Dispatch-only experiment harness: the same Gate-2-passing TLS
+# VLESS/Trojan candidates are tunnel-tested twice — plain via sing-box
+# (the production presentation) and enhanced via Xray-core with the
+# universal double-fragment finalmask preset. Publishes NOTHING; the
+# stats artifact decides whether a labelled variant track ships
+# (docs/PLAN.md, Plan Rev.2 R2).
+
+on:
+  workflow_dispatch:
+    inputs:
+      ab_limit:
+        description: "Paired subjects (each is tested by both cores)"
+        required: false
+        default: "60"
+      collect_limit:
+        description: "Candidate pool to draw subjects from"
+        required: false
+        default: "600"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ab-finalmask
+  cancel-in-progress: false
+
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned sing-box
+        env:
+          SING_BOX_VERSION: "1.11.15"
+          SING_BOX_SHA256: "950af37eb2d7e55dddae34a18411cd617303fd99d2dc75bc76b6dd9fcd97d9c5"
+        run: |
+          curl -sL -o /tmp/sing-box.tar.gz \
+            "https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz"
+          echo "${SING_BOX_SHA256}  /tmp/sing-box.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/sing-box.tar.gz -C /tmp
+          sudo install -m 0755 "/tmp/sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box" /usr/local/bin/sing-box
+          sing-box version
+
+      - name: Install pinned Xray-core
+        env:
+          XRAY_VERSION: "26.11.9"
+          XRAY_SHA256: "b651f7e1d9966ee2c1b1ee1bf8b52c72771824d3065dce96bbc8bcc19ed95f82"
+        run: |
+          curl -sL -o /tmp/xray.zip \
+            "https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-64.zip"
+          echo "${XRAY_SHA256}  /tmp/xray.zip" | sha256sum -c -
+          sudo apt-get update -qq && sudo apt-get install -y -qq unzip > /dev/null
+          unzip -o -q /tmp/xray.zip -d /tmp/xray-bin
+          sudo install -m 0755 /tmp/xray-bin/xray /usr/local/bin/xray
+          xray version
+
+      - name: Unit sanity (collector + governance + verifier)
+        run: python3 -m unittest pipeline.test_collector pipeline.test_governance pipeline.test_verifier
+
+      - name: Restore source snapshot cache
+        uses: actions/cache@v4
+        with:
+          path: .collector-cache
+          key: collector-cache-${{ github.run_id }}
+          restore-keys: |
+            collector-cache-
+
+      - name: Run paired A/B (plain sing-box vs Xray+finalmask)
+        env:
+          COLLECTOR_CACHE_DIR: ${{ github.workspace }}/.collector-cache
+        run: |
+          python3 pipeline/verifier.py pipeline/sources.json \
+            --ab-finalmask \
+            --sing-box "$(command -v sing-box)" \
+            --xray "$(command -v xray)" \
+            --ab-limit "${{ github.event.inputs.ab_limit || '60' }}" \
+            --collect-limit "${{ github.event.inputs.collect_limit || '600' }}" \
+            --out ab-stats.json
+
+      - name: Publish stats to step summary
+        if: always()
+        run: |
+          if [ -f ab-stats.json ]; then
+            {
+              echo '## Finalmask A/B stats'
+              echo ''
+              echo '```json'
+              cat ab-stats.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload stats artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ab-stats-${{ github.run_id }}
+          path: ab-stats.json
+          if-no-files-found: warn
+          retention-days: 30

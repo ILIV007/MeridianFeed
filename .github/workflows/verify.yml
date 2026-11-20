@@ -46,7 +46,7 @@ jobs:
           sing-box version
 
       - name: Collector + verifier unit sanity
-        run: python3 -m unittest pipeline.test_collector pipeline.test_verifier
+        run: python3 -m unittest pipeline.test_collector pipeline.test_governance pipeline.test_verifier
 
       # Load spreading: per-source snapshot cache. The collector sends
       # conditional requests (ETag / If-Modified-Since) and reuses the
