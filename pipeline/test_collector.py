@@ -190,5 +190,54 @@ class ConditionalFetchTest(unittest.TestCase):
                 self.assertEqual(seen_headers[1].get("If-none-match"), '"v1"')
 
 
+def vmess_ws_tls(host, sni="front.example.com", uid=UUID):
+    payload = {"v": "2", "ps": "fixture", "add": host, "port": "443",
+               "id": uid, "aid": "0", "net": "ws", "type": "none",
+               "host": sni, "path": "/hls/x.m3u8", "tls": "tls",
+               "sni": sni}
+    return "vmess://" + base64.b64encode(
+        json.dumps(payload).encode()).decode()
+
+
+class VariantTests(unittest.TestCase):
+    def test_cf_ip_vmess_multiplies(self):
+        uri = vmess_ws_tls("172.64.145.93")
+        rec = collector.parse_uri(uri)
+        out = collector.expand_cf_variants(rec, uri)
+        self.assertEqual(len(out), 1 + collector.MAX_CF_VARIANTS)
+        keys = {collector.dedup_key(r) for r, _ in out}
+        self.assertEqual(len(keys), len(out))  # own key per presentation
+        for r, u in out:
+            self.assertEqual(r["credential_hash"], rec["credential_hash"])
+            self.assertEqual(r["port"], 443)
+            self.assertIn(r["server"], collector.CF_VARIANT_IPS)
+        # one service behind all presentations
+        svc = {collector.service_key(r, u) for r, u in out}
+        self.assertEqual(len(svc), 1)
+
+    def test_cf_domain_vmess_multiplies(self):
+        uri = vmess_ws_tls("front.example.com")
+        rec = collector.parse_uri(uri)
+        with unittest.mock.patch.object(
+                collector, "_resolve_ips",
+                lambda h: ["172.64.145.93"] if h else []):
+            out = collector.expand_cf_variants(rec, uri)
+        self.assertGreater(len(out), 1)
+        self.assertEqual(out[0][0]["server"], "front.example.com")
+
+    def test_non_fronted_no_variants(self):
+        uri = vmess_uri()  # tcp, no tls
+        rec = collector.parse_uri(uri)
+        self.assertEqual(len(collector.expand_cf_variants(rec, uri)), 1)
+        reality = ("vless://%s@node9.example.com:443?type=tcp"
+                   "&security=reality&sni=www.example.com#x" % UUID)
+        rec = collector.parse_uri(reality)
+        self.assertEqual(
+            len(collector.expand_cf_variants(rec, reality)), 1)
+        ss = "ss://aes-256-gcm:passw0rd@172.64.145.93:8388#x"
+        rec = collector.parse_uri(ss)
+        self.assertEqual(len(collector.expand_cf_variants(rec, ss)), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

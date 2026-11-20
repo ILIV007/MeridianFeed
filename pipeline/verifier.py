@@ -114,6 +114,14 @@ def collect_candidates(registry_path, limit):
                     continue
                 seen[key] = (record, uri)
                 entries.append((record, uri))
+                # CF presentation variants enter as ordinary
+                # candidates: own keys, own Gate 2/3 verdicts.
+                for vrec, vuri in collector.expand_cf_variants(record, uri):
+                    vkey = collector.dedup_key(vrec)
+                    if vkey in seen:
+                        continue
+                    seen[vkey] = (vrec, vuri)
+                    entries.append((vrec, vuri))
         per_source.append(entries)
     sample = []
     idx = 0
