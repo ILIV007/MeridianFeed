@@ -18,6 +18,18 @@ function esc(s) {
 function buildRich(pool) {
   const configs = pool.configs.slice(0, MAX_POST_CONFIGS);
   let html = "<h3>\u{1FABC} PROXIV3 — Verified V2Ray Configs</h3>";
+  // Rescue block (GuestHole pattern, wolf 2026-11-20): 1-2 public
+  // copies of the most trusted field-verified configs, chosen by the
+  // composer into pool.rescue — rendered at the TOP, separate from
+  // the 5-config batch count. Omitted entirely when the composer
+  // found no field-verified candidate (never filler).
+  const rescue = Array.isArray(pool.rescue) ? pool.rescue.slice(0, 2) : [];
+  if (rescue.length) {
+    html += "<p>\u{1F6DF} <b>Rescue — if nothing connects, try these first</b></p>";
+    for (const c of rescue) {
+      html += "<p><b>" + esc(c.remark) + "</b></p><pre>" + esc(c.uri) + "</pre>";
+    }
+  }
   html += "<p>✅ <b>" + configs.length + " configs</b>" +
     " · double-verified end-to-end · " + esc(pool.generated_at) + "</p>";
   for (const c of configs) {

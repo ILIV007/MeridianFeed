@@ -15,6 +15,9 @@
 // Webhook requests are verified against the secret stored in KV
 // (webhook_secret). Replies use the TELEGRAM_TOKEN Worker secret.
 const SUB_BASE = "https://meridian-sub.ilipoolv2r.workers.dev/sub/";
+// Mirror route (meridian-sub2): same KV, same secret path — the
+// subscription stays reachable if the primary route is blocked.
+const SUB2_BASE = "https://meridian-sub2.ilipoolv2r.workers.dev/sub/";
 
 async function tg(env, method, body) {
   const r = await fetch("https://api.telegram.org/bot" + env.TELEGRAM_TOKEN + "/" + method,
@@ -53,8 +56,10 @@ async function sendVip(send, env, uid, chat) {
   }
   const secret = await env.MERIDIAN_STORE.get("sub_secret");
   if (!secret) { await send("VIP subscription is not ready yet — please try again shortly."); return; }
-  await send("\u{1FABC} PROXIV3 VIP\n\nYour subscription link (keep it private):\n" +
-    SUB_BASE + secret + "\n\nImport it once into your v2ray client or panel — the configs refresh automatically every hour.");
+  await send("\u{1FABC} PROXIV3 VIP\n\nYour subscription links (keep them private):\n" +
+    "Primary: " + SUB_BASE + secret + "\n" +
+    "Backup (mirror route, same subscription): " + SUB2_BASE + secret + "\n\n" +
+    "Import either one into your v2ray client or panel — the configs refresh automatically every hour.");
   const index = await loadIndex(env);
   if (index && index.items && index.items.length) {
     const lines = index.items.map(i => i.n + ". " + i.remark).join("\n");
