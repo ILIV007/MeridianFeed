@@ -1,3 +1,9 @@
+## 2026-11-20 — Gate-IR proceeds without RIPE Atlas
+
+- Wolf reported the RIPE Atlas API key "didn't work out" (~22:00 Tehran). The Atlas open item is CLOSED and is not to be re-asked. Gate-IR runs on check-host (4 Iranian nodes) + Globalping (up to 3 IR probes) only, under the unchanged confirmed-fail + controls/fail-open discipline; the Atlas code path stays dormant (census recorded) and Tier 1 stays thin by design while verdicts are mostly neutral. Field feedback remains the primary Iran ground truth. Recorded in docs/PLAN.md ("GATE-IR WITHOUT ATLAS").
+
+Agent: Rick
+
 ## 2026-11-20 — Corrected programme: first live cycle (outcome)
 
 - **First recompose under the new rules** (composer-side rules live; verify runs up to 44778189807 were dispatched pre-merge, so they carry the old verifier — the funnel is the composer's): collected_unique 2,646 -> latest run sampled 300 -> Gate-3 passed 135 -> core candidates 40 -> profile gate refused 37 of the 40 at Tier 1 (`ss_off_443` 13, `reality_not_field_verified` 11, `nonstandard_port` 11, `class_not_field_verified` 2) -> the 3 profile-clean survivors were all Gate-IR **neutral** on the old-code run, so **Tier 1 served 0** this cycle (neutral keys are withheld from Tier 1 by rule; none was IR-false). Tier 2 added 1, Tier 3 added 5, the ceiling then dropped 2, and the **ceiling escape added 4 slots** (`vip_ceiling_relaxed: true`) — **VIP served 8, floor met, shortfall 0**.
