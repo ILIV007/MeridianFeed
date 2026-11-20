@@ -12,12 +12,7 @@ lives exclusively in Telegram message text.
 
 - Cron `33 * * * *` (UTC): reads `public_pool` from KV `MERIDIAN_STORE` and
   posts one Telegram **Rich Message** batch to @Proxiv3 via the bot
-  (header 🪼 PROXIV3, one copyable block per config).
-- **At most 5 configs per post** (wolf's rule, 2026-11-20): the composer
-  caps the pool at 5 and the Worker slices to `MAX_POST_CONFIGS = 5`
-  again at render — never padded.
-- The footer is a **bold blockquote** (`<blockquote><b>🪼 @PROXIV3</b></blockquote>`)
-  as the final element of the message, nothing after it.
+  (header 🪼 PROXIV3, one copyable block per config, footer 🪼 @PROXIV3).
 - Refuses pools older than 90 minutes — a stale pool is never posted.
 - `GET /health` returns ok plus the last post's message id / timestamp.
 - Needs the `TELEGRAM_TOKEN` secret and the KV binding `MERIDIAN_STORE`.
@@ -31,36 +26,39 @@ lives exclusively in Telegram message text.
 - The secret path segment lives only in KV (`sub_secret`) and in the bot's
   /vip replies. It is never committed, logged or printed.
 
+## meridian-sub2 — VIP subscription mirror route (2026-11-20)
+
+- Byte-identical twin of meridian-sub (same KV namespace, same secret
+  path, same content) on a second independent workers.dev route —
+  the Alternative Routing pattern: the one subscription stays
+  reachable if the primary route is blocked or down. The bot's /vip
+  message presents both links (Primary + Backup). Still exactly one
+  subscription — no per-user tokens.
+
 ## meridian-bot — bot webhook (Phase 6)
 
 - Webhook for the project's bot (@Pool_IVbot), guarded by a Telegram
   secret-token header checked against KV `webhook_secret`.
-- `/start` — welcome text. `/vip` — the single VIP subscription link, only for
+- `/start` — welcome text. `/vip` — the VIP subscription links (primary
+  meridian-sub route + meridian-sub2 mirror), only for
   admin ids compiled into the Worker (the two owner accounts) or ids in the
   KV list `vip_users`; everyone else gets an invite-only reply.
-- `/help`. **Feedback v2 (2026-11-20):** /vip also sends the numbered
-  VIP list (KV `vip_index`, written by the composer next to `vip_sub`)
-  with a ❌ button per config and one ✅ "All worked" button; text
-  `dead N` / `works N` works too. Reports are stored in the KV
-  `feedback` object keyed by opaque pass-key hash ({works, dead,
-  works_ts, dead_ts}); the composer quarantines dead-reported keys
-  (both pools) until they re-verify, and weights works reports in
-  ranking.
+- `/help`, plus `works` / `dead` feedback messages appended to KV `feedback`
+  (capped at 200) to feed future verifier scoring.
 - Needs the `TELEGRAM_TOKEN` secret and the KV binding `MERIDIAN_STORE`.
 
-## meridian-peak — own anchor (Phase 4) — CLOSED, parked by wolf's instruction
+## meridian-peak — own anchor (Phase 4) — BLOCKED, not deployed
 
 `worker/meridian-peak/index.js` is a minimal in-house VLESS+WS+TLS Worker
 using `cloudflare:sockets`. On this account, **any** script whose code
 references `cloudflare:sockets` (static import, dynamic import, or separate
 module — all three bisected) returns HTTP 1101 on every route when deployed
 through the Scripts API, while identical code without the reference works.
-Final re-test (2026-11-20): the exact source uploaded as a throwaway probe
-answered briefly, then returned HTTP 500 on every route, while a no-sockets
-control Worker served normally — the platform block stands. The anchor is
-in no pool and the system is fully live without it. Reopening needs a
-dashboard/wrangler deploy or a Cloudflare platform change. KV keys
-`anchor_uuid` / `node_path` stay reserved for it.
+Two throwaway script names were burned proving this. Until the anchor can be
+deployed another way (dashboard/wrangler route or a Cloudflare-side fix), no
+anchor is published — the strict rule forbids posting unverified configs, and
+an undeployable anchor is unverifiable. KV keys `anchor_uuid` / `node_path`
+are reserved for it.
 
 ## Deploy (API token only — GitHub is NOT connected to Cloudflare)
 
