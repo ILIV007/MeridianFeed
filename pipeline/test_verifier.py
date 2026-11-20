@@ -195,6 +195,20 @@ class FinalmaskTests(unittest.TestCase):
                 self.assertIsNone(verifier.build_xray_outbound(uri))
 
 
+class WaitPortTests(unittest.TestCase):
+    def test_live_and_dead_ports(self):
+        import socket as _socket
+        srv = _socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        port = srv.getsockname()[1]
+        try:
+            self.assertTrue(verifier._wait_port(port, timeout=2.0))
+        finally:
+            srv.close()
+        self.assertFalse(verifier._wait_port(port, timeout=0.6))
+
+
 class AbFinalmaskSmokeTests(unittest.TestCase):
     """ab_finalmask orchestration with every network/binary seam
     stubbed. Regression guard: run 44704432326 died on
