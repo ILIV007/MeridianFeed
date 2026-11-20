@@ -147,5 +147,48 @@ class DedupTests(unittest.TestCase):
         self.assertEqual(len(collector.extract_candidates(texts[1])), 2)
 
 
+class ConditionalFetchTest(unittest.TestCase):
+    """fetch() snapshots per-URL bodies and revalidates conditionally."""
+
+    def _response(self, body, headers):
+        import io
+        resp = unittest.mock.MagicMock()
+        resp.read.return_value = body
+        resp.headers = headers
+        resp.__enter__ = lambda s: resp
+        resp.__exit__ = lambda s, *a: False
+        return resp
+
+    def test_snapshot_then_304_serves_cache(self):
+        import io
+        import tempfile
+        import unittest.mock
+        import urllib.error
+        url = "https://example.com/sub"
+        body = b"vless://example"
+        with tempfile.TemporaryDirectory() as cache_dir:
+            with unittest.mock.patch.dict(
+                    "os.environ",
+                    {"COLLECTOR_CACHE_DIR": cache_dir, "COLLECTOR_PACING": "0"}):
+                seen_headers = []
+
+                def first(request, timeout=None):
+                    seen_headers.append(request.headers)
+                    return self._response(body, {"ETag": '"v1"'})
+
+                with unittest.mock.patch("urllib.request.urlopen", first):
+                    self.assertEqual(collector.fetch(url), body)
+                self.assertNotIn("If-none-match", seen_headers[0])
+
+                def second(request, timeout=None):
+                    seen_headers.append(request.headers)
+                    raise urllib.error.HTTPError(
+                        url, 304, "Not Modified", {}, io.BytesIO(b""))
+
+                with unittest.mock.patch("urllib.request.urlopen", second):
+                    self.assertEqual(collector.fetch(url), body)
+                self.assertEqual(seen_headers[1].get("If-none-match"), '"v1"')
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,10 +5,15 @@
 // cloudflare:sockets is imported lazily inside the WS branch — a static
 // import made the whole module fail evaluation on this account.
 //
-// STATUS 2026-11-20: NOT DEPLOYED. On this Cloudflare account, any
-// Worker whose code references cloudflare:sockets (static, dynamic or
-// via a separate module) returns HTTP 1101 on every route when deployed
-// through the Scripts API. See worker/README.md for the full finding.
+// STATUS 2026-11-20: CLOSED — PARKED by wolf's instruction. Final
+// re-test the same day: the exact source was uploaded as a throwaway
+// probe Worker — it answered briefly, then returned HTTP 500 on every
+// route, while a no-sockets control Worker on the same account served
+// normally and meridian-pub stayed healthy. The platform block stands.
+// The anchor is in no pool and the system is fully live without it;
+// there is no sockets-free way to egress arbitrary TCP from a Worker.
+// Reopening needs a dashboard/wrangler deploy or a CF platform change.
+// See worker/README.md and docs/PLAN.md (Phase 4) for the full record.
 function hexToBytes(hex) {
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);

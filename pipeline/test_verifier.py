@@ -120,5 +120,18 @@ class PassKeyTests(unittest.TestCase):
         self.assertEqual(len(keys), len(FIXTURES))
 
 
+class UriMapTests(unittest.TestCase):
+    def test_map_covers_exactly_the_sample(self):
+        pairs = [(collector.parse_uri(uri, "test"), uri)
+                 for uri in FIXTURES.values()]
+        mapping = verifier.build_uri_map(pairs)
+        self.assertEqual(len(mapping), len(FIXTURES))
+        for record, uri in pairs:
+            self.assertEqual(mapping[verifier.pass_key(record)], uri)
+        # Keys stay opaque (no server/credential leakage in key space).
+        for key in mapping:
+            self.assertEqual(len(key), 64)
+
+
 if __name__ == "__main__":
     unittest.main()

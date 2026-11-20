@@ -15,8 +15,12 @@ import hashlib
 import html
 import ipaddress
 import json
+import os
+import random
 import re
 import sys
+import time
+import urllib.error
 import urllib.request
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -186,10 +190,58 @@ def candidate_texts(raw):
     return texts
 
 
+def _snapshot_path(url):
+    cache_dir = os.environ.get("COLLECTOR_CACHE_DIR")
+    if not cache_dir:
+        return None
+    return os.path.join(cache_dir, hashlib.sha256(url.encode()).hexdigest() + ".json")
+
+
 def fetch(url):
-    request = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        return response.read(8 * 1024 * 1024)
+    """One polite fetch per source per cycle, spread out and conditional.
+
+    Pacing: a jittered 0.4–1.5 s pause before every network request, and
+    callers fetch sequentially in randomised source order, so sources
+    never see a synchronised burst. Conditional requests: when
+    COLLECTOR_CACHE_DIR is set, the last body per URL is snapshotted
+    there and revalidation uses ETag / If-Modified-Since — an unchanged
+    list costs a 304 with no body download instead of a full transfer.
+    Set COLLECTOR_PACING=0 to disable the pause (unit tests).
+    """
+    if os.environ.get("COLLECTOR_PACING", "1") != "0":
+        time.sleep(random.uniform(0.4, 1.5))
+    headers = {"User-Agent": UA}
+    snap_path = _snapshot_path(url)
+    snap = None
+    if snap_path and os.path.exists(snap_path):
+        try:
+            snap = json.load(open(snap_path, encoding="utf-8"))
+        except Exception:
+            snap = None
+    if snap:
+        if snap.get("etag"):
+            headers["If-None-Match"] = snap["etag"]
+        if snap.get("last_modified"):
+            headers["If-Modified-Since"] = snap["last_modified"]
+    request = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            body = response.read(8 * 1024 * 1024)
+            etag = response.headers.get("ETag")
+            last_modified = response.headers.get("Last-Modified")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 304 and snap:
+            return base64.b64decode(snap["body_b64"])
+        raise
+    if snap_path:
+        try:
+            os.makedirs(os.path.dirname(snap_path), exist_ok=True)
+            with open(snap_path, "w", encoding="utf-8") as handle:
+                json.dump({"etag": etag, "last_modified": last_modified,
+                           "body_b64": base64.b64encode(body).decode()}, handle)
+        except Exception:
+            pass  # a cache write failure never fails the fetch
+    return body
 
 
 def collect_source(source, seen):

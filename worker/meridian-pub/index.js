@@ -5,19 +5,24 @@
 // fetch(): health only. Posting uses the TELEGRAM_TOKEN Worker secret.
 const CHANNEL = "@Proxiv3";
 const MAX_STALE_MS = 90 * 60 * 1000;
+// Wolf's rule (2026-11-20): a channel post carries at most 5 configs —
+// the best-ranked eligible ones, never padded.
+const MAX_POST_CONFIGS = 5;
 
 function esc(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function buildRich(pool) {
+  const configs = pool.configs.slice(0, MAX_POST_CONFIGS);
   let html = "<h3>\u{1FABC} PROXIV3 — Verified V2Ray Configs</h3>";
-  html += "<p>✅ <b>" + pool.configs.length + " configs</b>" +
+  html += "<p>✅ <b>" + configs.length + " configs</b>" +
     " · double-verified end-to-end · " + esc(pool.generated_at) + "</p>";
-  for (const c of pool.configs) {
+  for (const c of configs) {
     html += "<p><b>" + esc(c.remark) + "</b></p><pre>" + esc(c.uri) + "</pre>";
   }
-  html += "<p>\u{1FABC} @PROXIV3</p>";
+  // Wolf's standing style: the footer is a bold quote, final element.
+  html += "<blockquote><b>\u{1FABC} @PROXIV3</b></blockquote>";
   return html;
 }
 

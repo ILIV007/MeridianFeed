@@ -1,60 +1,67 @@
 {
-  "sources": [
-    {
-      "enabled": true,
-      "facet": "github-cn",
-      "name": "ermaozi",
-      "notes": "Phase 1 KEEP. Biggest valid count, VLESS-richest; 16.8% internal duplicates and heavy overlap with NoMoreWalls - dedup-critical.",
-      "type": "sub",
-      "url": "https://blog.ermao.net/sub/v2ray/ermao.net"
-    },
-    {
-      "enabled": true,
-      "facet": "github-cn",
-      "name": "NoMoreWalls",
-      "notes": "Phase 1 KEEP. Primary representative of the NoMoreWalls family pool; broadest protocol spread (base64 payload).",
-      "type": "github-raw",
-      "url": "https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.txt"
-    },
-    {
-      "enabled": true,
-      "facet": "github",
-      "name": "mahdibland-eternity",
-      "notes": "Phase 1 KEEP (Eternity track only). Upstream speed-filtered, 0% duplicates, SS-heavy supporting source.",
-      "type": "github-raw",
-      "url": "https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/Eternity.txt"
-    },
-    {
-      "enabled": true,
-      "facet": "ru",
-      "name": "pulseproxy",
-      "notes": "Phase 1b KEEP. RU whitelist file; genuinely independent second backbone (0.6% host overlap with the Phase 1 family), VLESS/Reality-heavy.",
-      "type": "github-raw",
-      "url": "https://raw.githubusercontent.com/pie-with-jam/PulseProxy/main/githubmirror/30.txt"
-    },
-    {
-      "enabled": true,
-      "facet": "telegram-fa",
-      "name": "outline_vpn",
-      "notes": "Phase 1b KEEP. FA operator-direct Telegram channel, sampled via the public web preview (last ~20 posts per fetch).",
-      "type": "telegram-preview",
-      "url": "https://t.me/s/outline_vpn"
-    },
-    {
-      "enabled": true,
-      "facet": "telegram-fa",
-      "name": "surfboardv2ray",
-      "notes": "Phase 1b KEEP. FA operator-direct Telegram channel via public web preview; the 1b report gives no pinned sub URL, so the preview feed is used (revisit if a pinned sub link is published).",
-      "type": "telegram-preview",
-      "url": "https://t.me/s/surfboardv2ray"
-    },
-    {
-      "enabled": true,
-      "facet": "fa-collector",
-      "name": "bahemmat-collector",
-      "notes": "Phase 1b KEEP (dedup-critical). FA Telegram-channel collector; broadest protocol spread but 39.5% host overlap with the Phase 1 family.",
-      "type": "github-raw",
-      "url": "https://raw.githubusercontent.com/MohammadBahemmat/V2ray-Collector/main/all_servers.txt"
-    }
-  ]
+ "sources": [
+  {
+   "enabled": true,
+   "facet": "github-cn",
+   "name": "ermaozi",
+   "notes": "Phase 1 KEEP. Biggest valid count, VLESS-richest; 16.8% internal duplicates and heavy overlap with NoMoreWalls - dedup-critical.",
+   "type": "sub",
+   "url": "https://blog.ermao.net/sub/v2ray/ermao.net",
+   "volatility": "stable"
+  },
+  {
+   "enabled": true,
+   "facet": "github-cn",
+   "name": "NoMoreWalls",
+   "notes": "Phase 1 KEEP. Primary representative of the NoMoreWalls family pool; broadest protocol spread (base64 payload).",
+   "type": "github-raw",
+   "url": "https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.txt",
+   "volatility": "stable"
+  },
+  {
+   "enabled": true,
+   "facet": "github",
+   "name": "mahdibland-eternity",
+   "notes": "Phase 1 KEEP (Eternity track only). Upstream speed-filtered, 0% duplicates, SS-heavy supporting source.",
+   "type": "github-raw",
+   "url": "https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/Eternity.txt",
+   "volatility": "stable"
+  },
+  {
+   "enabled": true,
+   "facet": "ru",
+   "name": "pulseproxy",
+   "notes": "Phase 1b KEEP. RU whitelist file; genuinely independent second backbone (0.6% host overlap with the Phase 1 family), VLESS/Reality-heavy.",
+   "type": "github-raw",
+   "url": "https://raw.githubusercontent.com/pie-with-jam/PulseProxy/main/githubmirror/30.txt",
+   "volatility": "stable"
+  },
+  {
+   "enabled": true,
+   "facet": "telegram-fa",
+   "name": "outline_vpn",
+   "notes": "Phase 1b KEEP. FA operator-direct Telegram channel, sampled via the public web preview (last ~20 posts per fetch).",
+   "type": "telegram-preview",
+   "url": "https://t.me/s/outline_vpn",
+   "volatility": "stable"
+  },
+  {
+   "enabled": true,
+   "facet": "telegram-fa",
+   "name": "surfboardv2ray",
+   "notes": "Phase 1b KEEP. FA operator-direct Telegram channel via public web preview; the 1b report gives no pinned sub URL, so the preview feed is used (revisit if a pinned sub link is published). VOLATILITY (audit 2026-11-20): volatile — Telegram preview window spans only ~4.7 h; 35.7% eligible-key retention over ~8 h. Demoted to discovery/volatile class; recovery relies on snapshot pinning + URI cache.",
+   "type": "telegram-preview",
+   "url": "https://t.me/s/surfboardv2ray",
+   "volatility": "volatile"
+  },
+  {
+   "enabled": true,
+   "facet": "fa-collector",
+   "name": "bahemmat-collector",
+   "notes": "Phase 1b KEEP (dedup-critical). FA Telegram-channel collector; broadest protocol spread but 39.5% host overlap with the Phase 1 family. VOLATILITY (audit 2026-11-20): volatile — list flips between full/partial scrape states sub-hourly (key survival ~0.35 @1 h); ~30% stable family core. Demoted to discovery/volatile class; recovery relies on snapshot pinning + URI cache.",
+   "type": "github-raw",
+   "url": "https://raw.githubusercontent.com/MohammadBahemmat/V2ray-Collector/main/all_servers.txt",
+   "volatility": "volatile"
+  }
+ ]
 }
