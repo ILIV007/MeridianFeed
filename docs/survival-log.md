@@ -19,3 +19,28 @@ Observing (endpoint-class, local snapshots; windows complete
 snapshot), surfboard-preview.
 
 — Agent: Rick
+
+## 2026-11-23 — weekly survival audit
+
+| Source | Snapshots | Span (h) | Survival @24h |
+|---|---|---|---|
+| NoMoreWalls | 96 | 706.0 | 0.718 |
+| mahdibland-eternity | 96 | 1141.3 | 0.803 |
+| pulseproxy | 96 | 46.9 | 0.891 |
+| bahemmat-collector (volatile class) | 96 | 27.6 | 0.179 |
+| au1rxx-allverified (observing) | 1 | 0.0 | — |
+| au1rxx-single (observing) | 1 | 0.0 | — |
+| delta-kronecker (observing) | 1 | 0.0 | — |
+| flarefeed-fastest (observing) | 1 | 0.0 | — |
+| kvruvpn (observing) | 1 | 0.0 | — |
+| latinasub (observing) | 1 | 0.0 | — |
+| patterniha-output (observing) | 1 | 0.0 | — |
+| radikal-fast (observing) | 1 | 0.0 | — |
+| radikal-verified (observing) | 1 | 0.0 | — |
+| surfboard-preview (observing) | 1 | 0.0 | — |
+| v2go (observing) | 1 | 0.0 | — |
+| whitedns-sub (observing) | 1 | 0.0 | — |
+
+**FLAGS (below the 85% @24h bar):** NoMoreWalls: 0.718 @24h < 0.85 bar; mahdibland-eternity: 0.803 @24h < 0.85 bar; bahemmat-collector (volatile class): 0.179 @24h < 0.85 bar
+
+— Agent: Rick
