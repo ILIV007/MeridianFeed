@@ -3,6 +3,12 @@
 // section (/vip hands the single subscription link to admins/VIPs
 // only), /help, and per-config field feedback.
 //
+// R5.4 (2026-11-24): /help recommends Network Checker
+// (github.com/mirarr-app/network-checker) as the self-diagnostic
+// companion — finds clean IPs from the user's own ISP — with both
+// recorded caveats (desktop Xray download has no checksum check;
+// public-IP lookup uses plain HTTP). Bot-internal surfaces only:
+// the channel never promotes the bot (public-comms rule).
 // Feedback v2 (2026-11-20, after wolf's Iran field test): /vip also
 // sends a numbered list of the current VIP configs (from the KV
 // vip_index the composer writes next to vip_sub) with a ❌ button per
@@ -59,7 +65,8 @@ async function sendVip(send, env, uid, chat) {
   await send("\u{1FABC} PROXIV3 VIP\n\nYour subscription links (keep them private):\n" +
     "Primary: " + SUB_BASE + secret + "\n" +
     "Backup (mirror route, same subscription): " + SUB2_BASE + secret + "\n\n" +
-    "Import either one into your v2ray client or panel — the configs refresh automatically every hour.");
+    "Import either one into your v2ray client or panel — the configs refresh automatically every hour.\n\n" +
+    "Self-check: Network Checker (github.com/mirarr-app/network-checker) finds clean IPs from your own ISP — note: its desktop Xray download has no checksum check and its IP lookup uses plain HTTP.");
   const index = await loadIndex(env);
   if (index && index.items && index.items.length) {
     const lines = index.items.map(i => i.n + ". " + i.remark).join("\n");
@@ -128,7 +135,9 @@ async function handleUpdate(update, env) {
     await send("This bot serves the \u{1FABC} PROXIV3 verified pool.\n\n" +
       "• Public configs: posted hourly in @Proxiv3\n" +
       "• /vip — your VIP subscription link + feedback list (VIP members only)\n" +
-      "• Feedback: tap ❌/✅ under /vip, or reply \"dead N\" / \"works N\" with the config's number from the list. A dead report quarantines that config until it passes verification again.");
+      "• Feedback: tap ❌/✅ under /vip, or reply \"dead N\" / \"works N\" with the config's number from the list. A dead report quarantines that config until it passes verification again.\n" +
+      "• Self-check: if configs keep failing from your network, Network Checker (github.com/mirarr-app/network-checker) finds clean IPs from your own ISP and tests them — a useful companion before reporting a config dead.\n" +
+      "  Two caveats: its desktop Xray download has no checksum verification, and its public-IP lookup uses plain HTTP.");
     return;
   }
   const m = text.match(/^(works|dead)\s+(\d+)\s*$/i);
