@@ -33,6 +33,11 @@ Usage:
   python3 pipeline/verifier.py --ab-finalmask [--xray PATH]
       [--ab-limit N] [--collect-limit N] [--out ab-stats.json]
       (Plan Rev.2 R2 paired A/B: plain sing-box vs Xray+finalmask)
+  python3 pipeline/verifier.py --ab-ech [--xray PATH]
+      [--ab-limit N] [--collect-limit N] [--out ab-stats.json]
+      (Plan Rev.2 R5.2 paired A/B: plain sing-box vs Xray+ECH)
+  --hunt runs the R5.1 MASQUE endpoint liveness screen inside a
+  normal verify run (stats["hunt"]); never feeds the pools.
 """
 import base64
 import concurrent.futures
@@ -98,7 +103,7 @@ def collect_candidates(registry_path, limit):
         registry = json.load(handle)
     seen, seen_identity = {}, {}
     per_source = []
-    fetched = valid = identity_dups = shape_rejected = 0
+    fetched = valid = identity_dups = shape_rejected = akamai = 0
     sources = [s for s in registry.get("sources", []) if s.get("enabled", True)]
     # Source governance (Plan Rev.2 R1): skip auto-disabled sources.
     try:
@@ -126,6 +131,8 @@ def collect_candidates(registry_path, limit):
                     if record is None:
                         continue
                     valid += 1
+                    if collector.akamai_fronted(record, uri):
+                        akamai += 1
                     if collector.cf_shape_reject(record, uri) is not None:
                         shape_rejected += 1
                         continue
@@ -155,7 +162,8 @@ def collect_candidates(registry_path, limit):
     totals = {"fetched": fetched, "gate1_valid": valid,
               "unique": len(seen), "sampled": len(sample),
               "identity_duplicates": identity_dups,
-              "shape_rejected": shape_rejected}
+              "shape_rejected": shape_rejected,
+              "akamai_fronted": akamai}
     totals.update(strata)
     return sample, totals
 
@@ -685,11 +693,14 @@ FINALMASK_TCP = [
 ]
 
 
-def build_xray_outbound(uri):
-    """Translate one security=tls VLESS/Trojan URI into an Xray outbound
-    carrying the finalmask preset, or None when the URI is outside the
-    A/B's scope (other protocols, REALITY/none security, exotic
-    transports). The builder doubles as the eligibility test."""
+def _xray_outbound(uri, tls_extra, with_finalmask):
+    """Shared Xray outbound construction for the A/B programme (R2
+    finalmask, R5.2 ECH): one security=tls VLESS/Trojan URI into an
+    Xray outbound, or None when the URI is outside the A/B's scope
+    (other protocols, REALITY/none security, exotic transports).
+    `tls_extra` carries the variant's TLS settings (fingerprint for
+    fm, echConfigList for ECH); `with_finalmask` adds the fragment
+    preset. The builder doubles as the eligibility test."""
     scheme = uri.partition("://")[0].lower()
     if scheme not in ("vless", "trojan"):
         return None
@@ -705,14 +716,15 @@ def build_xray_outbound(uri):
     if security != "tls":
         return None
     net = (_q1(query, "type") or "tcp").lower()
-    tls_settings = {"serverName": _q1(query, "sni") or host,
-                    "fingerprint": "unsafe"}
+    tls_settings = {"serverName": _q1(query, "sni") or host}
+    tls_settings.update(tls_extra)
     alpn = _q1(query, "alpn")
     if alpn:
         tls_settings["alpn"] = [a for a in alpn.split(",") if a]
     stream = {"network": net, "security": "tls",
-              "tlsSettings": tls_settings,
-              "finalmask": {"tcp": FINALMASK_TCP}}
+              "tlsSettings": tls_settings}
+    if with_finalmask:
+        stream["finalmask"] = {"tcp": FINALMASK_TCP}
     if net == "ws":
         ws = {"path": _q1(query, "path") or "/"}
         if _q1(query, "host"):
@@ -741,6 +753,41 @@ def build_xray_outbound(uri):
             "settings": {"servers": [{"address": host, "port": port,
                                       "password": password or user}]},
             "streamSettings": stream}
+
+
+def build_xray_outbound(uri):
+    """Translate one security=tls VLESS/Trojan URI into an Xray outbound
+    carrying the finalmask preset, or None when the URI is outside the
+    A/B's scope (other protocols, REALITY/none security, exotic
+    transports)."""
+    return _xray_outbound(uri, {"fingerprint": "unsafe"}, True)
+
+
+# ------------------------------------------- ECH A/B (Plan Rev.2 R5.2)
+#
+# The ECH question: does presenting a TLS VLESS/Trojan link through
+# Xray-core with Encrypted ClientHello pass Gate 3 more often than
+# the plain sing-box presentation of the same link? The transform is
+# the network-checker ECH service's (mirarr-app/network-checker
+# v1.7.3, GPL-3.0 — idea only, implementation in-house):
+# tlsSettings gains echConfigList "cloudflare-ech.com+udp://1.1.1.1"
+# (the ECH config is fetched over DoH from 1.1.1.1); security is
+# forced to tls; the SNI stays the URI's own. No fingerprint
+# override, no fragment preset — ECH is the single variable under
+# test. Same ship rule as fm: a separate labelled variant track only
+# on a win or tie-with-benefits; plain stays default; per-variant
+# feedback quarantine. The fm A/B's result does NOT prejudge this
+# one — ECH is a different mechanism.
+
+ECH_CONFIG_LIST = "cloudflare-ech.com+udp://1.1.1.1"
+
+
+def build_xray_ech_outbound(uri):
+    """Translate one security=tls VLESS/Trojan URI into an Xray
+    outbound carrying echConfigList, or None when the URI is outside
+    the A/B's scope. Mirrors build_xray_outbound's eligibility and
+    transport handling; the only difference is the ECH transform."""
+    return _xray_outbound(uri, {"echConfigList": ECH_CONFIG_LIST}, False)
 
 
 def run_xray_tunnel(outbound, xray, direct_ip, urls=None, stderr_path=None):
@@ -900,12 +947,14 @@ def run_xray_controls(xray, direct_ip):
     return result
 
 
-def ab_finalmask(registry_path, sing_box, xray, limit, collect_limit,
-                 workers):
-    """Paired A/B: the same Gate-2-passing TLS VLESS/Trojan candidates
-    through (plain) sing-box and (enhanced) Xray+finalmask. Output is
-    counts and opaque pass-keys only — same privacy rule as verify()."""
-    stats = {"tool": "meridianfeed-ab-finalmask", "ab_version": "1.0.0",
+def ab_xray_variant(registry_path, sing_box, xray, limit, collect_limit,
+                    workers, builder, tool_name):
+    """Shared paired-A/B core: the same Gate-2-passing TLS
+    VLESS/Trojan candidates through (plain) sing-box and (variant)
+    Xray, where `builder` turns a URI into the variant outbound.
+    Output is counts and opaque pass-keys only — same privacy rule
+    as verify()."""
+    stats = {"tool": tool_name, "ab_version": "1.0.0",
              "subjects": 0,
              "paired": {"both": 0, "plain_only": 0,
                         "enhanced_only": 0, "neither": 0},
@@ -917,7 +966,7 @@ def ab_finalmask(registry_path, sing_box, xray, limit, collect_limit,
     for record, uri in sample_all:
         if len(subjects) >= limit:
             break
-        if build_xray_outbound(uri) is None:
+        if builder(uri) is None:
             continue
         if not gate2(record)[0]:
             continue
@@ -945,7 +994,7 @@ def ab_finalmask(registry_path, sing_box, xray, limit, collect_limit,
         else:
             plain = failed("controls_failed")
         if enh_ok:
-            xray_outbound = build_xray_outbound(uri)
+            xray_outbound = builder(uri)
             enh = run_xray_tunnel(xray_outbound, xray, direct_ip) \
                 if xray_outbound else failed("build_none")
         else:
@@ -975,6 +1024,25 @@ def ab_finalmask(registry_path, sing_box, xray, limit, collect_limit,
                          "pass_rate": round(enh_passes / n, 4),
                          "latency_ms": distribution(enh_lat)}
     return stats
+
+
+def ab_finalmask(registry_path, sing_box, xray, limit, collect_limit,
+                 workers):
+    """Paired A/B: the same Gate-2-passing TLS VLESS/Trojan candidates
+    through (plain) sing-box and (enhanced) Xray+finalmask. Output is
+    counts and opaque pass-keys only — same privacy rule as verify()."""
+    return ab_xray_variant(registry_path, sing_box, xray, limit,
+                           collect_limit, workers, build_xray_outbound,
+                           "meridianfeed-ab-finalmask")
+
+
+def ab_ech(registry_path, sing_box, xray, limit, collect_limit, workers):
+    """Paired A/B (Plan Rev.2 R5.2): plain sing-box vs Xray+ECH on
+    the same candidate set. Same stats shape as ab_finalmask; the
+    variant is the ECH transform only."""
+    return ab_xray_variant(registry_path, sing_box, xray, limit,
+                           collect_limit, workers, build_xray_ech_outbound,
+                           "meridianfeed-ab-ech")
 
 
 def find_xray(cli_value):
@@ -1016,7 +1084,7 @@ def build_uri_map(pairs):
 
 
 def verify(registry_path, sing_box, limit, workers, gate2_workers,
-           map_out=None):
+           map_out=None, hunt=False):
     stats = {"tool": "meridianfeed-verifier", "verifier_version": "1.3.0",
              "sing_box": bool(sing_box), "passes": [],
              "limits": {"sample": limit, "gate3_workers": workers}}
@@ -1171,6 +1239,16 @@ def verify(registry_path, sing_box, limit, workers, gate2_workers,
     for record in pass_records:
         record["ir_reachable"] = ir_verdicts.get(record["key_hash"])
         record["ir_latency_ms"] = ir_latencies.get(record["key_hash"])
+    # R5.1 MASQUE hunt (opt-in via --hunt; the hourly workflow runs
+    # it): cheap TCP/TLS liveness of the curated MASQUE endpoints.
+    # Never fails the run; never feeds the pools.
+    if hunt:
+        try:
+            import endpoint_hunt
+            stats["hunt"] = endpoint_hunt.hunt_masque()
+        except Exception as exc:  # noqa: BLE001 - hunt is advisory
+            stats["hunt"] = {"error": "%s: %s" % (type(exc).__name__, exc),
+                             "tested": 0, "reachable": 0}
     return stats
 
 
@@ -1219,8 +1297,22 @@ def main(argv):
             with open(out_path, "w", encoding="utf-8") as handle:
                 handle.write(text + "\n")
         return 0
+    if "--ab-ech" in args:
+        xray = find_xray(opt("--xray", None))
+        stats = ab_ech(registry, sing_box, xray,
+                       int(opt("--ab-limit", "60")),
+                       int(opt("--collect-limit", "600")),
+                       workers)
+        stats["sing_box_path_found"] = bool(sing_box)
+        stats["xray_path_found"] = bool(xray)
+        text = json.dumps(stats, indent=2)
+        print(text)
+        if out_path:
+            with open(out_path, "w", encoding="utf-8") as handle:
+                handle.write(text + "\n")
+        return 0
     stats = verify(registry, sing_box, limit, workers, gate2_workers,
-                   map_out=map_out)
+                   map_out=map_out, hunt="--hunt" in args)
     stats["sing_box_path_found"] = bool(sing_box)
     text = json.dumps(stats, indent=2)
     print(text)

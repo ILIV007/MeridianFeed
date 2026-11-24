@@ -195,6 +195,116 @@ class FinalmaskTests(unittest.TestCase):
                 self.assertIsNone(verifier.build_xray_outbound(uri))
 
 
+class EchTests(unittest.TestCase):
+    """Plan Rev.2 R5.2: the Xray ECH outbound builder. Synthetic
+    fixtures only — the live A/B runs on Actions. The transform is
+    the network-checker ECH service's (idea only): echConfigList
+    cloudflare-ech.com+udp://1.1.1.1, nothing else."""
+
+    VLESS_WS = FinalmaskTests.VLESS_WS
+    TROJAN_WS = FinalmaskTests.TROJAN_WS
+
+    def test_ech_config_list_is_the_network_checker_value(self):
+        self.assertEqual(verifier.ECH_CONFIG_LIST,
+                         "cloudflare-ech.com+udp://1.1.1.1")
+
+    def test_vless_ws_tls_outbound(self):
+        out = verifier.build_xray_ech_outbound(self.VLESS_WS)
+        self.assertEqual(out["protocol"], "vless")
+        vnext = out["settings"]["vnext"][0]
+        self.assertEqual(vnext["address"], "edge.example.com")
+        self.assertEqual(vnext["port"], 443)
+        self.assertEqual(vnext["users"][0]["id"], UUID)
+        stream = out["streamSettings"]
+        self.assertEqual(stream["network"], "ws")
+        self.assertEqual(stream["security"], "tls")
+        self.assertEqual(stream["tlsSettings"]["serverName"],
+                         "edge.example.com")
+        self.assertEqual(stream["tlsSettings"]["echConfigList"],
+                         verifier.ECH_CONFIG_LIST)
+        # ECH is the single variable: no fragment preset, no
+        # fingerprint override.
+        self.assertNotIn("finalmask", stream)
+        self.assertNotIn("fingerprint", stream["tlsSettings"])
+        self.assertEqual(stream["wsSettings"]["path"], "/ws")
+
+    def test_trojan_outbound(self):
+        out = verifier.build_xray_ech_outbound(self.TROJAN_WS)
+        self.assertEqual(out["protocol"], "trojan")
+        server = out["settings"]["servers"][0]
+        self.assertEqual(server["address"], "tr.example.com")
+        self.assertEqual(server["port"], 8443)
+        self.assertEqual(
+            out["streamSettings"]["tlsSettings"]["echConfigList"],
+            verifier.ECH_CONFIG_LIST)
+
+    def test_out_of_scope_returns_none(self):
+        reality = ("vless://%s@203.0.113.10:443?security=reality"
+                   "&sni=example.com#x" % UUID)
+        self.assertIsNone(verifier.build_xray_ech_outbound(reality))
+        plain = "vless://%s@203.0.113.10:443?security=none#x" % UUID
+        self.assertIsNone(verifier.build_xray_ech_outbound(plain))
+        for uri in FIXTURES.values():
+            if uri.startswith(("ss://", "hysteria2://", "tuic://")):
+                self.assertIsNone(verifier.build_xray_ech_outbound(uri))
+
+    def test_fm_and_ech_builders_agree_on_scope(self):
+        """Same eligibility, different transform: a URI in scope for
+        one is in scope for the other."""
+        for uri in list(FIXTURES.values()) + [self.VLESS_WS,
+                                              self.TROJAN_WS]:
+            self.assertEqual(
+                verifier.build_xray_outbound(uri) is None,
+                verifier.build_xray_ech_outbound(uri) is None, uri)
+
+
+class AbEchSmokeTests(unittest.TestCase):
+    """ab_ech orchestration with every network/binary seam stubbed
+    (mirrors AbFinalmaskSmokeTests)."""
+
+    def test_paired_counts_with_stubbed_seams(self):
+        from unittest import mock
+        record = {"protocol": "vless", "server": "edge.example.com",
+                  "port": 443, "source": "fixture",
+                  "credential_hash": "fixturehash"}
+        uri = FinalmaskTests.VLESS_WS
+
+        def fake_tunnel(outbound, binary, direct_ip, urls=None):
+            return {"pass": False, "reason": "probe204",
+                    "latency_ms": None, "speed_mbps": None,
+                    "egress_country": None}
+
+        def fake_xray_tunnel(outbound, binary, direct_ip, urls=None):
+            return {"pass": True, "reason": None, "latency_ms": 88.0,
+                    "speed_mbps": 2.0, "egress_country": "DE"}
+
+        with mock.patch.object(verifier, "collect_candidates",
+                               return_value=([(record, uri)], {})), \
+             mock.patch.object(verifier, "gate2",
+                               return_value=(True, "ok")), \
+             mock.patch.object(verifier, "direct_egress",
+                               return_value=(None, None)), \
+             mock.patch.object(verifier, "run_controls",
+                               return_value={"ok": True}), \
+             mock.patch.object(verifier, "run_xray_controls",
+                               return_value={"ok": True}), \
+             mock.patch.object(verifier, "run_tunnel",
+                               side_effect=fake_tunnel), \
+             mock.patch.object(verifier, "run_xray_tunnel",
+                               side_effect=fake_xray_tunnel):
+            stats = verifier.ab_ech("unused.json", "sb", "xray",
+                                    10, 10, 2)
+        self.assertEqual(stats["tool"], "meridianfeed-ab-ech")
+        self.assertEqual(stats["subjects"], 1)
+        self.assertEqual(stats["paired"],
+                         {"both": 0, "plain_only": 0,
+                          "enhanced_only": 1, "neither": 0})
+        self.assertEqual(stats["plain"]["passes"], 0)
+        self.assertEqual(stats["enhanced"]["passes"], 1)
+        self.assertEqual(stats["per_subject"][0]["plain"], False)
+        self.assertEqual(stats["per_subject"][0]["enhanced"], True)
+
+
 class WaitPortTests(unittest.TestCase):
     def test_live_and_dead_ports(self):
         import socket as _socket
