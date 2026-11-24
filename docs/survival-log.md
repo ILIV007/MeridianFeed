@@ -106,3 +106,19 @@ due 2026-12-01. Governance zero-yield auto-disable polices unique
 yield in the meantime.
 
 — Agent: Rick
+
+## 2026-11-24 — First post-merge verify run with the R4 registry (run 45408448347)
+
+First verify run on the post-R4/R5.1 registry (dispatched 13:55Z, completed ~14:22Z; controls ok; verifier 1.3.0). The R4 adoption lands as a supply jump, and all four adopted sources contribute Gate-3 passes in week 1.
+
+**Funnel:** fetched **12,921** (pre-merge runs ~4,900) → gate1_valid 12,895 → unique **4,669** (profile 1,088 / other 3,581; pre-merge ~2,500–3,059) → sampled 900 (600 profile + 300 other) → Gate 2 passed 784 → Gate-3 passed **183** (pre-merge latest 160; public-criteria 124; profile-class 60). By protocol: ss 94, vless 36, vmess 25, hysteria2 25, trojan 3. Egress: US 75 (41% of passes — the leading share, under the 50% ceiling), DE 24, PL 17, NL 13, JP 9. `akamai_fronted` 0 — no Akamai-fronted candidates yet, as expected (the surface exists; supply has not appeared).
+
+**Gate-3 passes by source (183 total):** v2go **67**, radikal-verified 44, mahdibland-eternity 23, **au1rxx-allverified 14**, latinasub 9, alireza-collector 8, bahemmat-collector 6, ermaozi 6, whitedns-sub 6. **All four R4-adopted sources contribute in week 1 — the verified-corpus demotion trigger (zero contribution after week 1) is NOT hit for any of them.** v2go is the single largest contributor (37% of passes) on its first run under the new registry. Au1rxx's 14 passes are consistent with the one-time injection (~1,368 keys first collect); its unique yield afterwards is expected to fall to zero and governance auto-disable retires it on evidence.
+
+**First live MASQUE hunt numbers (`stats["hunt"]`):** 118 targets tested, **79 reachable, 64 TLS-OK on 443** (443: 69 reachable, 8443: 5, 500/1701/4500/4443/8095: 1 each; latency median 1.83 ms — runner-local anycast, as expected). Scope honesty stands: TCP/TLS liveness only, NOT a MASQUE protocol proof; the hunt never feeds the pools. The WARP/MASQUE endpoint surface is largely alive from the runner — the hunt is now a standing per-run measurement.
+
+**Gate-IR this run:** 69 endpoints, reachable 2 / unreachable 0 / neutral 67 (97% neutral; controls via Globalping, positive ok). The API stage still gives almost no signal — the R6.2 browser checker (built 2026-11-24) is the residential vantage that has to carry this.
+
+**Note on per-source unique_new:** the verifier stats artifact and the job log carry `passes[].source` (Gate-3 contribution, above) but no per-source collect counts — unique yield per source is measured by the weekly survival audit from snapshots (next: Mon 2026-11-30 09:55 Tehran), which also polices the Au1rxx retirement. The aggregate supply jump (fetched +8,000, unique +~1,600–2,100 vs pre-merge) is consistent with the Au1rxx injection plus the verified-corpus sources.
+
+— Agent: Rick
