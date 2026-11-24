@@ -2,14 +2,21 @@
  "seeded": "2026-11-20 Plan Rev.2 R0 \u2014 first history entry per incumbent is the unique_new of the 2026-11-20 ~08:25Z live collect (registry order attribution). Governance arms from here; a source needs ZERO_ROUNDS=6 zero samples before auto-disable can fire. Agent: Rick",
  "sources": {
   "NoMoreWalls": {
-   "disabled": false,
-   "disabled_reason": null,
-   "disabled_ts": null,
+   "disabled": true,
+   "disabled_reason": "Plan Rev.2 R4 (2026-11-24): unique yield 19/340 and shrinking; working persistence 0.00; Radikal cascade 1.27% / 951 ms; ermaozi covers 94.3%.",
+   "disabled_ts": 1795522300.9556372,
    "lifetime_unique": 37,
    "unique_history": [
     19,
     18
    ]
+  },
+  "au1rxx-allverified": {
+   "disabled": false,
+   "disabled_reason": null,
+   "disabled_ts": null,
+   "lifetime_unique": 0,
+   "unique_history": []
   },
   "bahemmat-collector": {
    "disabled": false,
@@ -30,6 +37,13 @@
     395,
     391
    ]
+  },
+  "latinasub": {
+   "disabled": false,
+   "disabled_reason": null,
+   "disabled_ts": null,
+   "lifetime_unique": 0,
+   "unique_history": []
   },
   "mahdibland-eternity": {
    "disabled": false,
@@ -79,8 +93,22 @@
     24,
     26
    ]
+  },
+  "v2go": {
+   "disabled": false,
+   "disabled_reason": null,
+   "disabled_ts": null,
+   "lifetime_unique": 0,
+   "unique_history": []
+  },
+  "whitedns-sub": {
+   "disabled": false,
+   "disabled_reason": null,
+   "disabled_ts": null,
+   "lifetime_unique": 0,
+   "unique_history": []
   }
  },
- "updated_ts": 1795163624.3515558,
+ "updated_ts": 1795522300.9556372,
  "version": 1
 }
