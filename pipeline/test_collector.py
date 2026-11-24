@@ -335,6 +335,29 @@ class CfShapeRejectTests(unittest.TestCase):
         self.assertIsNone(collector.cf_shape_reject(rec, uri))
 
 
+class AkamaiTests(unittest.TestCase):
+    """Plan Rev.2 R5.1: Akamai-fronted classification (data lift)."""
+
+    def test_akamai_ip_is_fronted(self):
+        rec = collector.parse_uri(
+            "ss://aes-256-gcm:passw0rd@2.16.0.5:8388#x")
+        self.assertTrue(collector.akamai_fronted(
+            rec, "ss://aes-256-gcm:passw0rd@2.16.0.5:8388#x"))
+
+    def test_cf_and_random_ips_are_not(self):
+        for uri in ("ss://aes-256-gcm:passw0rd@172.64.145.93:8388#x",
+                    "ss://aes-256-gcm:passw0rd@203.0.113.9:8388#x"):
+            rec = collector.parse_uri(uri)
+            self.assertFalse(collector.akamai_fronted(rec, uri))
+
+    def test_collect_counts_akamai_fronted(self):
+        body = "\n".join([
+            "ss://aes-256-gcm:passw0rd@2.16.0.5:8388#x",
+            "ss://aes-256-gcm:passw0rd@203.0.113.9:8388#x"])
+        stats, _ = collect_body(body)
+        self.assertEqual(stats["akamai_fronted"], 1)
+
+
 class MultiUrlTests(unittest.TestCase):
     """Plan Rev.2 R4: a registry entry may list `urls` (Au1rxx's 6
     all-verified shards as one upstream)."""

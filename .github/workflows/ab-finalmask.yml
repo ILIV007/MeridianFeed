@@ -63,8 +63,8 @@ jobs:
           sudo install -m 0755 /tmp/xray-bin/xray /usr/local/bin/xray
           xray version
 
-      - name: Unit sanity (collector + governance + verifier)
-        run: python3 -m unittest pipeline.test_collector pipeline.test_governance pipeline.test_verifier
+      - name: Unit sanity (collector + governance + verifier + hunt)
+        run: python3 -m unittest pipeline.test_collector pipeline.test_governance pipeline.test_verifier pipeline.test_endpoint_hunt
 
       - name: Restore source snapshot cache
         uses: actions/cache@v4

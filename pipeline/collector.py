@@ -131,6 +131,60 @@ def cf_fronted(record, uri):
     return False
 
 
+_AKAMAI_NETS = None
+
+
+def _akamai_nets():
+    """Akamai ranges lifted under R5.1 (data/akamai_ranges.txt) —
+    loaded lazily, empty when the data file is absent (tests, old
+    checkouts). A new fronting surface: disjoint from every CF range,
+    so an Akamai-fronted config is a genuinely different edge."""
+    global _AKAMAI_NETS
+    if _AKAMAI_NETS is None:
+        nets = []
+        try:
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "data", "akamai_ranges.txt")
+            with open(path, encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        nets.append(ipaddress.ip_network(line))
+        except Exception:
+            nets = []
+        _AKAMAI_NETS = nets
+    return _AKAMAI_NETS
+
+
+def akamai_fronted(record, uri):
+    """True when the config's server is an Akamai edge IP (literal, or
+    a domain resolving into Akamai ranges). A classification flag
+    only: no ranking change ships with it — when Akamai-fronted
+    candidates appear in volume, their field treatment is a separate
+    decision. Crash-safe: any parse surprise yields False."""
+    try:
+        server = record.get("server", "") or ""
+        try:
+            ipaddress.ip_address(server)
+            is_ip = True
+        except ValueError:
+            is_ip = False
+        if is_ip:
+            ip = ipaddress.ip_address(server)
+            return any(ip in net for net in _akamai_nets())
+        return any(_akamai_ip(ip) for ip in _resolve_ips(server))
+    except Exception:
+        return False
+
+
+def _akamai_ip(ip_text):
+    try:
+        ip = ipaddress.ip_address(ip_text)
+    except ValueError:
+        return False
+    return any(ip in net for net in _akamai_nets())
+
+
 def front_class(record, uri):
     """Survival class of a config (field-measured order, wolf's field
     tests 2026-11-20): 0 CF-anycast-IP WS+TLS, 1 domain WS+TLS
@@ -559,7 +613,7 @@ def collect_source(source, seen, seen_identity=None):
              "valid": 0, "rejected": 0, "duplicates": 0, "unique_new": 0,
              "identity_duplicates": 0, "shape_rejected": 0,
              "variants": 0, "unique_hosts": 0, "protocols": {},
-             "urls_fetched": 0, "fetch_errors": []}
+             "urls_fetched": 0, "fetch_errors": [], "akamai_fronted": 0}
     try:
         fetched, errors = fetch_source(source)
     except Exception as exc:  # one polite fetch per URL; failures reported
@@ -583,6 +637,11 @@ def collect_source(source, seen, seen_identity=None):
         stats["valid"] += 1
         stats["protocols"][record["protocol"]] = \
             stats["protocols"].get(record["protocol"], 0) + 1
+        if akamai_fronted(record, uri):
+            # R5.1: new fronting surface, counted on every valid
+            # record (before dedup) so a live cycle shows whether
+            # Akamai-fronted candidates exist at all.
+            stats["akamai_fronted"] += 1
         if cf_shape_reject(record, uri) is not None:
             stats["shape_rejected"] += 1
             continue

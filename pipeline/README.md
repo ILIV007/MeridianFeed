@@ -71,3 +71,49 @@ python3 pipeline/verifier.py pipeline/sources.json --sing-box /path/to/sing-box 
 ```
 
 First proof run (2026-11-20, build sandbox, sample of 40): collector 2,581 fetched → 2,554 Gate-1 valid → 1,821 unique → 40 sampled; Gate 2 passed 40/40 (this sandbox's transparent gateway accepts TCP broadly, so Gate-2 rates here are inflated); **controls OK** (positive loopback pair passed, negative correctly failed); Gate 3 candidates 0/40 — **an environment artifact, not a config verdict**: the sandbox blocks direct TLS egress from the host (verified independently of sing-box), which candidate tunnels require, so real Gate-3 pass rates are measured on GitHub Actions runners with normal egress. Builder correctness was verified separately: 60/60 sampled outbounds pass `sing-box check`.
+
+## R5.1 — network-checker data lifts (2026-11-24)
+
+Data lives in `data/` (lists only, provenance in each file header;
+mirarr-app/network-checker v1.7.3, GPL-3.0 — data/ideas lift freely,
+implementations are in-house):
+
+- `data/masque_warp.json` — MASQUE Scout seeds/CIDRs/ports + SNI
+  default `cloudflareaccess.com`. `pipeline/endpoint_hunt.py`
+  probes the endpoints for TCP/TLS liveness (118 targets: 8 seeds ×
+  7 ports + 14 CIDRs × 5 sampled hosts on 443, deduped). The hourly
+  verifier runs it with `--hunt` and reports `stats["hunt"]`. Scope
+  honesty: TCP/TLS liveness only, NOT a MASQUE protocol proof
+  (MASQUE speaks QUIC); the hunt never feeds the pools.
+- `data/akamai_ranges.txt` — 275 Akamai CIDRs, a new fronting
+  surface disjoint from every CF range. `collector.akamai_fronted`
+  flags Akamai-edge servers; the count is reported per collect
+  (`akamai_fronted`) and per verify run (`input.akamai_fronted`). No
+  ranking change ships with it — when Akamai-fronted candidates
+  appear in volume, their field treatment is a separate decision.
+- `data/cf_edge_ranges.txt` — 7,887 CF edge CIDRs (their scanner
+  list). Cross-checked 2026-11-24: all 4 of our CF_VARIANT_IPS are
+  inside it; 2,251 of its CIDRs (28.5%) overlap none of our CF_NETS
+  (non-CF edge addresses swept into a scanner list) — our CF_NETS
+  (Cloudflare's published ranges) stay the authority for CF-fronted
+  classification; no list changed.
+- `data/ir_dns.json` — 28 Iranian datacenter range providers, 51
+  public DNS providers, 169 top domains. Stored for future
+  DNS-poisoning-aware checks. Gate 2 currently uses the runner's
+  system resolver and holds no hardcoded resolver list — nothing to
+  cross-check there.
+- CDN scan presets: reference only, nothing lifted.
+
+## R5.2 — ECH variant A/B (2026-11-24)
+
+`verifier.py --ab-ech` pairs plain sing-box against Xray-core with
+Encrypted ClientHello (`tlsSettings.echConfigList =
+cloudflare-ech.com+udp://1.1.1.1`, the network-checker ECH service's
+value) on the same Gate-2-passing TLS VLESS/Trojan candidates.
+Shares the A/B core with `--ab-finalmask` (`ab_xray_variant`, one
+builder per arm); dispatch-only workflow `.github/workflows/ab-ech.yml`
+(Xray v26.11.9 pinned, sha256-verified). Locally validated: `xray run
+-test` OK on vless-ws / trojan-ws / vless-tcp ECH outbounds. Ship rule
+as fm: a separate labelled variant track only on a win or
+tie-with-benefits; plain stays default. The fm A/B's result does not
+prejudge this arm.
