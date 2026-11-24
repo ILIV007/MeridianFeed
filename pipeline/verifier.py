@@ -113,42 +113,43 @@ def collect_candidates(registry_path, limit):
     random.shuffle(sources)  # spread politely: no fixed hammering order
     for source in sources:
         try:
-            raw = collector.fetch(source["url"])
+            bodies, _errors = collector.fetch_source(source)
         except Exception:
             per_source.append([])
             continue
         entries = []
-        for text in collector.candidate_texts(raw):
-            for uri in collector.extract_candidates(text):
-                fetched += 1
-                record = collector.parse_uri(uri, source["name"])
-                if record is None:
-                    continue
-                valid += 1
-                if collector.cf_shape_reject(record, uri) is not None:
-                    shape_rejected += 1
-                    continue
-                key = collector.dedup_key(record)
-                if key in seen:
-                    continue
-                ident = collector.identity_key(record, uri)
-                if ident in seen_identity:
-                    # Same origin service under another presentation:
-                    # one candidate per service (R1 identity dedup) —
-                    # Gate-3 budget is spent on services, not copies.
-                    identity_dups += 1
-                    continue
-                seen_identity[ident] = key
-                seen[key] = (record, uri)
-                entries.append((record, uri))
-                # CF presentation variants enter as ordinary
-                # candidates: own keys, own Gate 2/3 verdicts.
-                for vrec, vuri in collector.expand_cf_variants(record, uri):
-                    vkey = collector.dedup_key(vrec)
-                    if vkey in seen:
+        for _url, raw in bodies:
+            for text in collector.candidate_texts(raw):
+                for uri in collector.extract_candidates(text):
+                    fetched += 1
+                    record = collector.parse_uri(uri, source["name"])
+                    if record is None:
                         continue
-                    seen[vkey] = (vrec, vuri)
-                    entries.append((vrec, vuri))
+                    valid += 1
+                    if collector.cf_shape_reject(record, uri) is not None:
+                        shape_rejected += 1
+                        continue
+                    key = collector.dedup_key(record)
+                    if key in seen:
+                        continue
+                    ident = collector.identity_key(record, uri)
+                    if ident in seen_identity:
+                        # Same origin service under another presentation:
+                        # one candidate per service (R1 identity dedup) —
+                        # Gate-3 budget is spent on services, not copies.
+                        identity_dups += 1
+                        continue
+                    seen_identity[ident] = key
+                    seen[key] = (record, uri)
+                    entries.append((record, uri))
+                    # CF presentation variants enter as ordinary
+                    # candidates: own keys, own Gate 2/3 verdicts.
+                    for vrec, vuri in collector.expand_cf_variants(record, uri):
+                        vkey = collector.dedup_key(vrec)
+                        if vkey in seen:
+                            continue
+                        seen[vkey] = (vrec, vuri)
+                        entries.append((vrec, vuri))
         per_source.append(entries)
     sample, strata = stratified_sample(per_source, limit)
     totals = {"fetched": fetched, "gate1_valid": valid,

@@ -10,10 +10,10 @@
    "volatility": "stable"
   },
   {
-   "enabled": true,
+   "enabled": false,
    "facet": "github-cn",
    "name": "NoMoreWalls",
-   "notes": "Phase 1 KEEP. Primary representative of the NoMoreWalls family pool; broadest protocol spread (base64 payload).",
+   "notes": "DISABLED at Plan Rev.2 R4 (2026-11-24). R0 verdict: unique yield 19/340 and shrinking; working persistence 0.00 over 15 runs; Radikal cascade stability 1.27% / 951 ms median; ermaozi covers 94.3% of its keys. Weekly audit 2026-11-23: 0.718 @24h < 0.85 bar. Entry kept for history; re-enable only on fresh evidence. Agent: Rick",
    "type": "github-raw",
    "url": "https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.txt",
    "volatility": "stable"
@@ -22,7 +22,7 @@
    "enabled": true,
    "facet": "github",
    "name": "mahdibland-eternity",
-   "notes": "Phase 1 KEEP (Eternity track only). Upstream speed-filtered, 0% duplicates, SS-heavy supporting source.",
+   "notes": "Phase 1 KEEP (Eternity track only). Upstream speed-filtered, 0% duplicates, SS-heavy supporting source. KEEP at Plan Rev.2 R4 (2026-11-24): 112 unique/cycle here; verified-key persistence 1.00 (29/29 over 15 runs); list persistence 0.800 @24h (weekly audit 2026-11-23: 0.803); Radikal's retirement does not transfer — their zero was relative to sub_merge, which we do not ingest. Watched by governance like everything else. Agent: Rick",
    "type": "github-raw",
    "url": "https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/Eternity.txt",
    "volatility": "stable"
@@ -89,6 +89,49 @@
    "type": "github-raw",
    "url": "https://raw.githubusercontent.com/jafarm83/ConfigV2Ray/main/jafar.txt",
    "volatility": "stable"
+  },
+  {
+   "enabled": true,
+   "facet": "aggregator-verified",
+   "name": "au1rxx-allverified",
+   "notes": "Plan Rev.2 R4 adoption (2026-11-24): ONLY candidate at/above the >=85% @24h bar — gh history 0.854 @24h (80 pairs) on shard 0001. Adopted as ONE upstream over the 6 all-verified shards (collector multi-URL entry; concatenated dir-mode persistence 1.000 @ ~100h). UPSTREAM FROZEN: last commit to these files 2026-10-30 — the bar measurement covers the publisher's active period (Oct 26-30). Expect ~1,368 keys on first collect, then zero unique yield; the R1 governance auto-disable will retire it on evidence. Verified-corpus class under governance: admission judged by first-week Gate-3 contribution + unique yield, not file persistence. Every config re-enters the full Gate 1-3 pipeline; no ordering inherited.",
+   "type": "github-raw",
+   "urls": [
+    "https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/all-verified/v2ray-base64-0001.txt",
+    "https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/all-verified/v2ray-base64-0002.txt",
+    "https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/all-verified/v2ray-base64-0003.txt",
+    "https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/all-verified/v2ray-base64-0004.txt",
+    "https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/all-verified/v2ray-base64-0005.txt",
+    "https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/all-verified/v2ray-base64-0006.txt"
+   ],
+   "volatility": "volatile"
+  },
+  {
+   "enabled": true,
+   "facet": "aggregator-verified",
+   "name": "latinasub",
+   "notes": "Plan Rev.2 R4 adoption (2026-11-24): verified-corpus class, 0.777 @24h (R0, strongest of the below-bar class); closing ~100h persistence 0.585 (207 -> 205 keys, Nov 20-24). Adopted flagged under governance per the R0 reconciled rule: admission judged by first-week Gate-3 contribution + unique yield; auto-disable polices thereafter. Every config re-enters the full Gate 1-3 pipeline; no ordering inherited.",
+   "type": "github-raw",
+   "url": "https://raw.githubusercontent.com/LalatinaHub/LatinaSub/main/result/sub",
+   "volatility": "volatile"
+  },
+  {
+   "enabled": true,
+   "facet": "aggregator-verified",
+   "name": "v2go",
+   "notes": "Plan Rev.2 R4 adoption (2026-11-24): verified-corpus class, 0.694 @24h (R0); closing ~100h persistence 0.500 (648 -> 506 keys, Nov 20-24). Adopted flagged under governance per the R0 reconciled rule: admission judged by first-week Gate-3 contribution + unique yield; auto-disable polices thereafter. Every config re-enters the full Gate 1-3 pipeline; no ordering inherited.",
+   "type": "github-raw",
+   "url": "https://raw.githubusercontent.com/Danialsamadi/v2go/main/AllConfigsSub.txt",
+   "volatility": "volatile"
+  },
+  {
+   "enabled": true,
+   "facet": "aggregator-verified",
+   "name": "whitedns-sub",
+   "notes": "Plan Rev.2 R4 adoption (2026-11-24): verified-corpus class, 0.561 @24h (R0); closing ~100h persistence 0.333 (84 -> 65 keys, Nov 20-24) — the thinnest of the adopted class, kept for its long-tail yield. Adopted flagged under governance per the R0 reconciled rule: admission judged by first-week Gate-3 contribution + unique yield; auto-disable polices thereafter. Every config re-enters the full Gate 1-3 pipeline; no ordering inherited.",
+   "type": "github-raw",
+   "url": "https://raw.githubusercontent.com/iampedii/whitedns-sub/main/base64.txt",
+   "volatility": "volatile"
   }
  ]
 }

@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import unittest
+import urllib.error
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import collector  # noqa: E402
@@ -332,6 +333,81 @@ class CfShapeRejectTests(unittest.TestCase):
         uri = "ss://aes-256-gcm:passw0rd@172.64.145.93:443#x"
         rec = collector.parse_uri(uri)
         self.assertIsNone(collector.cf_shape_reject(rec, uri))
+
+
+class MultiUrlTests(unittest.TestCase):
+    """Plan Rev.2 R4: a registry entry may list `urls` (Au1rxx's 6
+    all-verified shards as one upstream)."""
+
+    def test_source_urls_single_and_multi(self):
+        self.assertEqual(
+            collector.source_urls({"url": "https://example.invalid/a"}),
+            ["https://example.invalid/a"])
+        self.assertEqual(
+            collector.source_urls({"urls": ["https://example.invalid/a",
+                                           "https://example.invalid/b"]}),
+            ["https://example.invalid/a", "https://example.invalid/b"])
+        self.assertEqual(collector.source_urls({}), [])
+
+    def test_multi_url_collects_all_shards(self):
+        uri_a = "vless://%s@shard-a.example.com:443#x" % UUID
+        uri_b = "vless://%s@shard-b.example.com:443#x" % UUID2
+        bodies = {"https://example.invalid/1": uri_a.encode(),
+                  "https://example.invalid/2": uri_b.encode()}
+        source = {"name": "multi", "urls": list(bodies),
+                  "facet": "test", "type": "github-raw"}
+        with unittest.mock.patch.object(
+                collector, "fetch", lambda url: bodies[url]):
+            stats = collector.collect_source(source, {}, {})
+        self.assertTrue(stats["ok"])
+        self.assertEqual(stats["urls_fetched"], 2)
+        self.assertEqual(stats["unique_new"], 2)
+        self.assertEqual(stats["fetch_errors"], [])
+
+    def test_multi_url_dedups_across_shards(self):
+        uri = "vless://%s@dup.example.com:443#x" % UUID
+        source = {"name": "multi",
+                  "urls": ["https://example.invalid/1",
+                           "https://example.invalid/2"],
+                  "facet": "test", "type": "github-raw"}
+        with unittest.mock.patch.object(
+                collector, "fetch", lambda url: uri.encode()):
+            stats = collector.collect_source(source, {}, {})
+        self.assertEqual(stats["unique_new"], 1)
+        self.assertEqual(stats["duplicates"], 1)
+
+    def test_one_dead_shard_does_not_kill_source(self):
+        uri = "vless://%s@alive.example.com:443#x" % UUID
+
+        def fetch(url):
+            if url.endswith("/2"):
+                raise urllib.error.HTTPError(
+                    url, 404, "Not Found", {}, None)
+            return uri.encode()
+
+        source = {"name": "multi",
+                  "urls": ["https://example.invalid/1",
+                           "https://example.invalid/2"],
+                  "facet": "test", "type": "github-raw"}
+        with unittest.mock.patch.object(collector, "fetch", fetch):
+            stats = collector.collect_source(source, {}, {})
+        self.assertTrue(stats["ok"])
+        self.assertEqual(stats["urls_fetched"], 1)
+        self.assertEqual(len(stats["fetch_errors"]), 1)
+        self.assertEqual(stats["unique_new"], 1)
+
+    def test_all_shards_dead_is_not_ok(self):
+        def fetch(url):
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+        source = {"name": "multi",
+                  "urls": ["https://example.invalid/1",
+                           "https://example.invalid/2"],
+                  "facet": "test", "type": "github-raw"}
+        with unittest.mock.patch.object(collector, "fetch", fetch):
+            stats = collector.collect_source(source, {}, {})
+        self.assertFalse(stats["ok"])
+        self.assertIn("404", stats["error"])
 
 
 class FrontClassTests(unittest.TestCase):

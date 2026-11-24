@@ -1,3 +1,14 @@
+## 2026-11-24 — Plan Rev.2 R4 adoptions executed
+
+- **Closing measurements (2026-11-24):** re-snapshotted all 9 R0 candidates (Nov-20 → Nov-24, span 99.7 h). **Au1rxx shard 0001 re-confirmed at the bar in gh mode on fresh history: 0.854 @24h (80 pairs)** — the only bar-passer. Verified-corpus class closing persistence (~100 h): LatinaSub 0.585, v2go 0.500, whitedns-sub 0.333, Radikal verified 0.573 (reference). patterniha-output rejected again (6 keys, 0.000 persistence). Radikal fast not adopted (subset funnel of verified, 0.600).
+- **Au1rxx adopted as a multi-URL upstream** (`au1rxx-allverified`, 6 shards, collector gains a `urls` registry form + `fetch_source` with per-shard failure tolerance; verifier `collect_candidates` follows the same path; 5 new tests, 108/108 green). **Caveat:** the upstream repo last committed to these files on 2026-10-30 — the concatenated file is byte-identical Nov 20 → Nov 24 (frozen). The adoption is a one-time supply injection (~1,368 keys first collect); zero unique yield afterwards retires it via the R1 governance auto-disable on evidence.
+- **Verified-corpus class adopted flagged under governance:** LatinaSub, v2go, whitedns-sub (registry notes carry the R0 figures + closing persistence; admission judged by first-week Gate-3 contribution + unique yield, never file persistence). **Delta-Kronecker NOT adopted — its upstream repo is gone (404 as of 2026-11-24).**
+- **Verdicts applied:** NoMoreWalls **disabled** (registry `enabled: false` + governance record with reason + timestamp; entry kept for history). mahdibland-eternity **kept** (112 unique/cycle; verified-key persistence 1.00; list 0.800 @24h).
+- **Weekly-audit fold-in:** all four adopted sources join `survival_weekly.py` GH_KEEPS; the verified-corpus demotion trigger (zero Gate-3 pass contribution after week 1, measured from `passes[].source` in verifier stats) is recorded with first-week review due 2026-12-01.
+- **Post-merge watch:** the next verify runs after this merge are the first with the new registry — first-collect unique yield and Gate-3 contribution per adopted source are reported in the survival log once they land.
+
+Agent: Rick
+
 ## 2026-11-20 — Full end-to-end test + pinned info post updated
 
 - **Full live test (wolf-ordered, ~22:00 Tehran).** Fresh verify run **44793674432** dispatched and completed successfully: fetched 4,923 → Gate-1 valid 4,888 → unique 3,059 (profile 696 / other 2,363) → sampled 900 (600 profile + 300 other) → Gate 2 passed 803 → Gate 3 passed **190** (by class: plain-ss 87, other 50, reality-sni 47, cf-ip-ws-tls 5, domain-ws-tls 1; profile-clean 93; 98 met the VIP floors in-run). Gate-IR (first full cycle without Atlas): stage ok, 98 endpoints → **1 reachable / 0 unreachable / 97 neutral**, latency measured 1 — Tier 1 stays thin by design, as recorded.

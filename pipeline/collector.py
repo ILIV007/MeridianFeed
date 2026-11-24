@@ -521,25 +521,58 @@ def fetch(url):
     return body
 
 
+def source_urls(source):
+    """URL list for a registry entry: a single `url`, or a `urls`
+    list (R4: Au1rxx's 6 all-verified shards as one upstream — the
+    collector cannot concatenate, so the registry lists the shards)."""
+    urls = source.get("urls")
+    if urls:
+        return list(urls)
+    url = source.get("url")
+    return [url] if url else []
+
+
+def fetch_source(source):
+    """Fetch every URL of a source; returns ([(url, body)], [errors])
+    for the URLs that succeeded. Raises the last error when ALL fail —
+    a single dead shard never kills the whole upstream."""
+    urls = source_urls(source)
+    if not urls:
+        raise ValueError("source %s has no url(s)" % source.get("name"))
+    fetched, errors = [], []
+    for url in urls:
+        try:
+            fetched.append((url, fetch(url)))
+        except Exception as exc:  # noqa: BLE001 - per-URL, keep going
+            errors.append("%s: %s: %s" % (url, type(exc).__name__, exc))
+    if not fetched:
+        raise RuntimeError("; ".join(errors))
+    return fetched, errors
+
+
 def collect_source(source, seen, seen_identity=None):
     if seen_identity is None:
         seen_identity = {}
     stats = {"name": source["name"], "facet": source.get("facet", ""),
-             "type": source.get("type", ""), "url": source["url"],
+             "type": source.get("type", ""), "url": source.get("url", ""),
              "ok": False, "error": None, "fetched_bytes": 0, "fetched": 0,
              "valid": 0, "rejected": 0, "duplicates": 0, "unique_new": 0,
              "identity_duplicates": 0, "shape_rejected": 0,
-             "variants": 0, "unique_hosts": 0, "protocols": {}}
+             "variants": 0, "unique_hosts": 0, "protocols": {},
+             "urls_fetched": 0, "fetch_errors": []}
     try:
-        raw = fetch(source["url"])
-    except Exception as exc:  # one polite fetch; failures are reported, not retried
+        fetched, errors = fetch_source(source)
+    except Exception as exc:  # one polite fetch per URL; failures reported
         stats["error"] = "%s: %s" % (type(exc).__name__, exc)
         return stats
     stats["ok"] = True
-    stats["fetched_bytes"] = len(raw)
+    stats["urls_fetched"] = len(fetched)
+    stats["fetch_errors"] = errors
+    stats["fetched_bytes"] = sum(len(body) for _, body in fetched)
     candidates = []
-    for text in candidate_texts(raw):
-        candidates.extend(extract_candidates(text))
+    for _, raw in fetched:
+        for text in candidate_texts(raw):
+            candidates.extend(extract_candidates(text))
     stats["fetched"] = len(candidates)
     hosts = set()
     for uri in candidates:
@@ -608,7 +641,7 @@ def main(argv):
         if source["name"] in gov_disabled:
             per_source.append({
                 "name": source["name"], "facet": source.get("facet", ""),
-                "type": source.get("type", ""), "url": source["url"],
+                "type": source.get("type", ""), "url": source.get("url", ""),
                 "ok": False, "error": "governance_disabled",
                 "governance_disabled": True, "fetched_bytes": 0,
                 "fetched": 0, "valid": 0, "rejected": 0, "duplicates": 0,
