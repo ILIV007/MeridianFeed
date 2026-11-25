@@ -1,5 +1,5 @@
 {
- "seeded": "2026-11-20 Plan Rev.2 R0 \u2014 first history entry per incumbent is the unique_new of the 2026-11-20 ~08:25Z live collect (registry order attribution). Governance arms from here; a source needs ZERO_ROUNDS=6 zero samples before auto-disable can fire. Agent: Rick",
+ "seeded": "2026-11-20 Plan Rev.2 R0 — first history entry per incumbent is the unique_new of the 2026-11-20 ~08:25Z live collect (registry order attribution). Governance arms from here; a source needs ZERO_ROUNDS=6 zero samples before auto-disable can fire. Agent: Rick",
  "sources": {
   "NoMoreWalls": {
    "disabled": true,
@@ -10,6 +10,13 @@
     19,
     18
    ]
+  },
+  "alireza-collector": {
+   "disabled": true,
+   "disabled_reason": "Upstream repo blocked by GitHub for ToS (2026-11-24); raw file 404s, fetch fails every run. Disabled 2026-11-25 on hard evidence, not yield.",
+   "disabled_ts": 1795594047.9692292,
+   "lifetime_unique": 2400,
+   "unique_history": []
   },
   "au1rxx-allverified": {
    "disabled": false,
@@ -109,6 +116,6 @@
    "unique_history": []
   }
  },
- "updated_ts": 1795522300.9556372,
+ "updated_ts": 1795594047.9692314,
  "version": 1
 }
