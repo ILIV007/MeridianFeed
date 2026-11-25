@@ -281,3 +281,12 @@ Agent: Rick
 - Composer consumption of checker_verdicts stays OFF until real verdicts exist and prove reliable; ❌/✅ feedback remains the only quarantine path.
 
 Agent: Rick
+
+
+## ALIREZA DISABLED + VERIFIED-CORPUS REVIEW INTERIM — 2026-11-25 (Agent: Rick)
+
+- alireza-collector disabled: upstream repo ToS-blocked by GitHub 2026-11-24 (API 403), raw file 404, fetch dead every run since. Registry + governance seed updated; entry kept for history.
+- Verified-corpus review interim (12 runs, Nov 24–25): all four R4 sources contribute in 12/12 runs — demotion trigger not hit; recommendation KEEP all four; Dec 1 decision needs Nov 26–Dec 1 runs. Au1rxx yield is misleading on a frozen file (passer Jaccard 0.77) — judge it on passer-set stability, not unique_history. Structural gap: dead-upstream sources record no samples and can never auto-disable via yield — Dec 1 review item.
+- Local hygiene: refresh_repo.py TRACKED was missing 10 post-R5 files (incl. fetch_governance_state.py + tests); fixed, full suite 150/150 green.
+
+Agent: Rick
