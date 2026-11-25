@@ -1,0 +1,93 @@
+name: compose
+
+# Composer independence (2026-11-25): the hourly composer runs here,
+# not on any operator machine. Scheduled runs are dry-run shadow
+# until the COMPOSER_LIVE repo variable is "true"; live mode fails
+# closed (no KV writes) when the Cloudflare secret/vars are absent.
+# Cron 45 UTC = :15 Tehran, ahead of the :33 Tehran publisher post.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run composes and reports only; live writes KV"
+        type: choice
+        options:
+          - dry-run
+          - live
+        default: dry-run
+  schedule:
+    - cron: "45 * * * *"
+
+permissions:
+  contents: read
+  # Artifact download + verify dispatch for the dispatch-and-exit
+  # staleness path (same behaviour as the former local cron).
+  actions: write
+
+concurrency:
+  group: compose
+  cancel-in-progress: false
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Composer unit tests
+        run: python3 pipeline/composer/test_compose.py
+
+      # uri_cache + source snapshots are recovery accelerators only;
+      # verify pin maps (downloaded per run) remain the primary URI
+      # recovery path, so a cache miss never changes selection.
+      - name: Restore composer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .composer-state/uri_cache.json
+            .composer-state/source_cache
+          key: composer-state-${{ github.run_id }}
+          restore-keys: |
+            composer-state-
+
+      - name: Run composer
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CF_KV_API_TOKEN: ${{ secrets.CF_KV_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
+          CF_KV_NAMESPACE_ID: ${{ vars.CF_KV_NAMESPACE_ID }}
+          COMPOSER_LIVE: ${{ vars.COMPOSER_LIVE }}
+          MERIDIAN_STATE_DIR: ${{ github.workspace }}/.composer-state
+          MERIDIAN_OUT_DIR: ${{ github.workspace }}/.composer-state/out
+        run: python3 pipeline/composer/run_compose.py --mode "${{ inputs.mode || '' }}"
+
+      - name: Publish compose summary
+        if: always()
+        run: |
+          if [ -f .composer-state/compose-summary.json ]; then
+            {
+              echo '## Composer summary'
+              echo ''
+              echo '```json'
+              cat .composer-state/compose-summary.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Summary + compose log only (counts/tiers, no config URIs).
+      - name: Upload compose summary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-summary-${{ github.run_id }}
+          path: |
+            .composer-state/compose-summary.json
+            .composer-state/compose_log.jsonl
+          if-no-files-found: warn
+          retention-days: 30
