@@ -1,0 +1,26 @@
+name: composer-ci
+
+# PR checks for the Actions composer (independence migration).
+# Tests only: no compose run, no KV access, no verify dispatch.
+
+on:
+  pull_request:
+    paths:
+      - "pipeline/composer/**"
+      - ".github/workflows/compose.yml"
+      - ".github/workflows/composer-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Composer unit tests
+        run: python3 pipeline/composer/test_compose.py
