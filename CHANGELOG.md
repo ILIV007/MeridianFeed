@@ -1,3 +1,12 @@
+## 2026-11-25 — README and repository metadata cleanup (Agent: Rick)
+
+- Refreshed the public README in English to match the live system: MeridianFeed is presented as the V2Ray complement to the main PROXIV3 MTProto bot/system, with prominent links to the @PROXIV3 channel and the ILIV007/Proxiv3 repository.
+- Updated the status, layout, and high-level architecture summary; removed stale phase wording and avoided variable counts or private subscription details.
+- Set repository metadata for discoverability: homepage points to the channel and topics describe the Telegram/V2Ray/Cloudflare/GitHub Actions stack.
+- Docs/metadata only: no code, gates, pool logic, Workers, timing, or secrets changed.
+
+Agent: Rick
+
 ## 2026-11-25 — 08:00 UTC stats-files mystery RESOLVED (benign) + stats-download logging
 
 ## 2026-11-25 — Composer phase moved :25 → :15 Tehran (Agent: Rick)
