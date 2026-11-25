@@ -91,24 +91,37 @@ def pass_key(record):
 
 # ---------------------------------------------------------------- sampling
 
-def collect_candidates(registry_path, limit):
+def collect_candidates(registry_path, limit, governance_path=None):
     """Fetch sources via the collector, dedup, stratified sample
     (profile stratum in full + `limit` of the other stratum — see
     stratified_sample).
 
     Returns (sample, totals) where sample is a list of (record, uri)
     pairs — the uri lives in memory only and is never serialised.
+    totals["per_source_yield"] is the governance measurement for
+    this cycle: one {"name", "ok", "unique_new"} per fetched source
+    (unique_new counts base records only — CF presentation variants
+    are tracked separately, exactly like collector.collect_source —
+    so the zero/non-zero distinction a disable depends on is the
+    same in both paths; a fetch that raises on every URL is ok=False
+    and is not a yield sample at all).
+
+    governance_path, when given, is the working governance state
+    file (the previous run's artifact, restored by the workflow);
+    otherwise the repo seed next to the registry is read for the
+    disabled list.
     """
     with open(registry_path, encoding="utf-8") as handle:
         registry = json.load(handle)
     seen, seen_identity = {}, {}
     per_source = []
+    yield_stats = []
     fetched = valid = identity_dups = shape_rejected = akamai = 0
     sources = [s for s in registry.get("sources", []) if s.get("enabled", True)]
     # Source governance (Plan Rev.2 R1): skip auto-disabled sources.
     try:
         import governance
-        gov_path = os.path.join(os.path.dirname(
+        gov_path = governance_path or os.path.join(os.path.dirname(
             os.path.abspath(registry_path)), "governance_state.json")
         if os.path.exists(gov_path):
             disabled = governance.disabled_names(governance.load(gov_path))
@@ -121,8 +134,11 @@ def collect_candidates(registry_path, limit):
             bodies, _errors = collector.fetch_source(source)
         except Exception:
             per_source.append([])
+            yield_stats.append({"name": source["name"], "ok": False,
+                                "unique_new": 0})
             continue
         entries = []
+        unique_new = 0
         for _url, raw in bodies:
             for text in collector.candidate_texts(raw):
                 for uri in collector.extract_candidates(text):
@@ -149,6 +165,7 @@ def collect_candidates(registry_path, limit):
                     seen_identity[ident] = key
                     seen[key] = (record, uri)
                     entries.append((record, uri))
+                    unique_new += 1
                     # CF presentation variants enter as ordinary
                     # candidates: own keys, own Gate 2/3 verdicts.
                     for vrec, vuri in collector.expand_cf_variants(record, uri):
@@ -158,12 +175,15 @@ def collect_candidates(registry_path, limit):
                         seen[vkey] = (vrec, vuri)
                         entries.append((vrec, vuri))
         per_source.append(entries)
+        yield_stats.append({"name": source["name"], "ok": True,
+                            "unique_new": unique_new})
     sample, strata = stratified_sample(per_source, limit)
     totals = {"fetched": fetched, "gate1_valid": valid,
               "unique": len(seen), "sampled": len(sample),
               "identity_duplicates": identity_dups,
               "shape_rejected": shape_rejected,
-              "akamai_fronted": akamai}
+              "akamai_fronted": akamai,
+              "per_source_yield": yield_stats}
     totals.update(strata)
     return sample, totals
 
@@ -1084,12 +1104,43 @@ def build_uri_map(pairs):
 
 
 def verify(registry_path, sing_box, limit, workers, gate2_workers,
-           map_out=None, hunt=False):
-    stats = {"tool": "meridianfeed-verifier", "verifier_version": "1.3.0",
+           map_out=None, hunt=False, governance_state=None):
+    stats = {"tool": "meridianfeed-verifier", "verifier_version": "1.4.0",
              "sing_box": bool(sing_box), "passes": [],
              "limits": {"sample": limit, "gate3_workers": workers}}
-    sample, totals = collect_candidates(registry_path, limit)
+    sample, totals = collect_candidates(
+        registry_path, limit, governance_path=governance_state)
     stats["input"] = totals
+    # Governance round-trip (2026-11-25): record this cycle's unique
+    # yields and apply auto-disables. Runs only when the workflow
+    # passes --governance-state (the restored artifact path); local
+    # and A/B runs leave the state untouched. The record lands right
+    # after collection — yield is a collect-phase measurement, so a
+    # later Gate 2/3 failure must not lose the sample.
+    if governance_state:
+        try:
+            import governance
+            seed_path = os.path.join(os.path.dirname(
+                os.path.abspath(registry_path)),
+                "governance_state.json")
+            state, newly, loaded_from = governance.record_yield(
+                governance_state, seed_path,
+                totals.get("per_source_yield", []),
+                registry_path, time.time())
+            stats["governance"] = {
+                "recorded": True, "loaded_from": loaded_from,
+                "newly_disabled": sorted(newly),
+                "disabled_now": sorted(
+                    governance.disabled_names(state)),
+                "history_lengths": {
+                    name: len(ent.get("unique_history", []))
+                    for name, ent in state.get("sources", {}).items()}}
+        except Exception as exc:  # noqa: BLE001 - never break a run
+            stats["governance"] = {"recorded": False,
+                                   "error": "%s: %s" % (
+                                       type(exc).__name__, exc)}
+    else:
+        stats["governance"] = {"recorded": False}
     if map_out:
         with open(map_out, "w", encoding="utf-8") as handle:
             json.dump(build_uri_map(sample), handle)
@@ -1312,7 +1363,8 @@ def main(argv):
                 handle.write(text + "\n")
         return 0
     stats = verify(registry, sing_box, limit, workers, gate2_workers,
-                   map_out=map_out, hunt="--hunt" in args)
+                   map_out=map_out, hunt="--hunt" in args,
+                   governance_state=opt("--governance-state", None))
     stats["sing_box_path_found"] = bool(sing_box)
     text = json.dumps(stats, indent=2)
     print(text)

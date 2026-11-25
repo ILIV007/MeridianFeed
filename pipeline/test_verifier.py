@@ -366,6 +366,72 @@ class AbFinalmaskSmokeTests(unittest.TestCase):
         self.assertEqual(stats["per_subject"][0]["enhanced"], False)
 
 
+class GovernanceRecordingTests(unittest.TestCase):
+    """verify() records the governance round-trip when
+    --governance-state is passed (2026-11-25): yields append to the
+    working file and stats["governance"] reports the load source.
+    Seams stubbed; no network, no sing-box."""
+
+    def test_records_yield_and_reports_in_stats(self):
+        import tempfile
+        from unittest import mock
+        import governance
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            names = ["dead", "s1", "s2", "s3", "s4"]
+            registry_path = os.path.join(tmp.name, "sources.json")
+            with open(registry_path, "w") as handle:
+                json.dump({"sources": [
+                    {"name": n, "enabled": True} for n in names]},
+                    handle)
+            seed = governance.empty_state()
+            for n in names:
+                seed["sources"][n] = {
+                    "unique_history": [3], "lifetime_unique": 3,
+                    "disabled": False, "disabled_reason": None,
+                    "disabled_ts": None}
+            with open(os.path.join(tmp.name,
+                                   "governance_state.json"), "w") as h:
+                json.dump(seed, h)
+            state_path = os.path.join(tmp.name, "governance-state.json")
+            totals = {"per_source_yield": [
+                {"name": n, "ok": True,
+                 "unique_new": 0 if n == "dead" else 5}
+                for n in names]}
+            with mock.patch.object(
+                    verifier, "collect_candidates",
+                    return_value=([], totals)), \
+                 mock.patch.object(verifier, "gate2",
+                                   return_value=(True, "ok")), \
+                 mock.patch.object(verifier, "direct_egress",
+                                   return_value=(None, None)):
+                stats = verifier.verify(
+                    registry_path, None, 10, 2, 2,
+                    governance_state=state_path)
+            gov = stats["governance"]
+            self.assertTrue(gov["recorded"])
+            self.assertEqual(gov["loaded_from"], "seed")
+            self.assertEqual(gov["newly_disabled"], [])
+            written = governance.load(state_path)
+            self.assertEqual(
+                written["sources"]["dead"]["unique_history"], [3, 0])
+            self.assertEqual(gov["history_lengths"]["dead"], 2)
+        finally:
+            tmp.cleanup()
+
+    def test_no_governance_state_means_no_recording(self):
+        from unittest import mock
+        with mock.patch.object(
+                verifier, "collect_candidates",
+                return_value=([], {"per_source_yield": []})), \
+             mock.patch.object(verifier, "gate2",
+                               return_value=(True, "ok")), \
+             mock.patch.object(verifier, "direct_egress",
+                               return_value=(None, None)):
+            stats = verifier.verify("unused.json", None, 10, 2, 2)
+        self.assertEqual(stats["governance"], {"recorded": False})
+
+
 class StratifiedSampleTests(unittest.TestCase):
     """Profile-first stratified sampling: every profile-class
     candidate is verified each cycle; the other classes share the

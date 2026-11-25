@@ -17,6 +17,9 @@ on:
 
 permissions:
   contents: read
+  # Governance-state restore reads workflow runs + artifacts of this
+  # repo (fetch_governance_state.py, 2026-11-25).
+  actions: read
 
 concurrency:
   group: verify
@@ -46,7 +49,7 @@ jobs:
           sing-box version
 
       - name: Collector + verifier unit sanity
-        run: python3 -m unittest pipeline.test_collector pipeline.test_governance pipeline.test_verifier pipeline.test_ir_check pipeline.test_endpoint_hunt
+        run: python3 -m unittest pipeline.test_collector pipeline.test_governance pipeline.test_verifier pipeline.test_ir_check pipeline.test_endpoint_hunt pipeline.test_fetch_governance_state
 
       # Load spreading: per-source snapshot cache. The collector sends
       # conditional requests (ETag / If-Modified-Since) and reuses the
@@ -59,6 +62,23 @@ jobs:
           restore-keys: |
             collector-cache-
 
+      # Governance state persistence (2026-11-25): the auto-retire
+      # guard needs yield history across runs, but the repo file is a
+      # frozen seed — every run reloaded it, so 6 zero samples could
+      # never accumulate and the guard could never fire. The live
+      # state now round-trips through Actions artifacts (same pattern
+      # as the stats artifacts): this step restores the newest
+      # governance-state artifact (fallback: the repo seed when none
+      # exists yet), the verifier appends this cycle's yields and
+      # applies disables, and the upload step below publishes the
+      # updated state. Fail-open: a missing/failed restore never
+      # breaks the run (the script exits 0 and the verifier falls
+      # back to the seed).
+      - name: Restore governance state
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 pipeline/fetch_governance_state.py --out governance-state.json
+
       - name: Run verifier (Gate 2 + Gate 3 with controls + R5.1 hunt)
         env:
           COLLECTOR_CACHE_DIR: ${{ github.workspace }}/.collector-cache
@@ -67,6 +87,7 @@ jobs:
             --sing-box "$(command -v sing-box)" \
             --limit "${{ github.event.inputs.limit || '300' }}" \
             --hunt \
+            --governance-state governance-state.json \
             --out verify-stats.json
 
       - name: Publish stats to step summary
@@ -88,6 +109,20 @@ jobs:
         with:
           name: verify-stats-${{ github.run_id }}
           path: verify-stats.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      # Governance state (2026-11-25): the updated state this run
+      # recorded — the next run restores it as its working file.
+      # Same 30-day retention as the stats artifacts (the chain is
+      # fed hourly, so expiry is a non-issue; a gap longer than the
+      # retention falls back to the repo seed by design).
+      - name: Upload governance state artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-state-${{ github.run_id }}
+          path: governance-state.json
           if-no-files-found: warn
           retention-days: 30
 
