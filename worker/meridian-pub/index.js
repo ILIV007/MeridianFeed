@@ -20,23 +20,43 @@ function esc(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function flagForCountry(country) {
+  const cc = String(country || "").trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return "\u{1F310}";
+  return String.fromCodePoint(
+    ...[...cc].map(ch => 0x1F1E6 + ch.charCodeAt(0) - 65));
+}
+
+function postLabel(c) {
+  const cc = String(c.country || "").trim().toUpperCase();
+  const protocol = String(c.protocol || "").trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(cc) && protocol) {
+    return flagForCountry(cc) + " " + cc + " · " + protocol;
+  }
+  // Older pools may carry only the full client remark. Keep just its
+  // informative middle (flag/country + protocol); the brand and the
+  // word Verified are stated once by the post itself.
+  const parts = String(c.remark || "").split("·")
+    .map(s => s.trim()).filter(Boolean);
+  if (parts.length >= 3 && /[A-Z]{2}$/.test(parts[1])) {
+    return parts[1] + " · " + parts[2];
+  }
+  return String(c.remark || protocol || "Config");
+}
+
 function buildRich(pool) {
   const configs = pool.configs.slice(0, MAX_POST_CONFIGS);
-  let html = "<h3>\u{1FABC} PROXIV3 — Verified V2Ray Configs</h3>";
-  // Rescue block (GuestHole pattern, wolf 2026-11-20): 1-2 public
-  // copies of the most trusted field-verified configs, chosen by the
-  // composer into pool.rescue — rendered at the TOP, separate from
-  // the 5-config batch count. Omitted entirely when the composer
-  // found no field-verified candidate (never filler).
+  // Approved clean format (wolf, 2026-11-25): the main 🪼 opens the
+  // heading, each config label carries only flag/country/protocol,
+  // and the same emoji closes the post in the footer quote.
   // Rescue-post rule (wolf, 2026-11-20): rescue configs NEVER go
-  // in the channel post — the post carries only the 5-config batch.
-  // pool.rescue is ignored even if a stale pool still carries it;
-  // a deleted rescue config is announced by reply instead (see
-  // buildRemovalNote / postBatch).
-  html += "<p>✅ <b>" + configs.length + " configs</b>" +
-    " · double-verified end-to-end · " + esc(pool.generated_at) + "</p>";
+  // in the channel post — pool.rescue is ignored even if a stale
+  // pool still carries it; deletions are announced by reply instead
+  // (see buildRemovalNote / postBatch).
+  let html = "<h3>\u{1FABC} Verified V2Ray Configs</h3>";
+  html += "<p>" + configs.length + " configs, verified end-to-end.</p>";
   for (const c of configs) {
-    html += "<p><b>" + esc(c.remark) + "</b></p><pre>" + esc(c.uri) + "</pre>";
+    html += "<p><b>" + esc(postLabel(c)) + "</b></p><pre>" + esc(c.uri) + "</pre>";
   }
   // Wolf's standing style: the footer is a bold quote, final element.
   html += "<blockquote><b>\u{1FABC} @PROXIV3</b></blockquote>";

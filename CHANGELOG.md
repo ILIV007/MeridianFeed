@@ -6,6 +6,15 @@
 
 Agent: Rick
 
+## 2026-11-25 — Clean hourly post format (wolf-approved)
+
+- **Post format cleaned up (wolf, 2026-11-25 ~12:07–12:09 Tehran):** the hourly Rich post was too cluttered and emoji-heavy. Wolf reviewed a private sample rendered from the live pool and approved it with one tweak — the main 🪼 also opens the message text. Final format: heading `🪼 Verified V2Ray Configs`; one intro line (`5 configs, verified end-to-end.`); per-config labels carry only flag + country + protocol (for example `🇩🇪 DE · VLESS`); the bold blockquote footer `🪼 @PROXIV3` remains the final element. Removed: the repeated `PROXIV3` brand and `Verified` suffix from every label, the ✅ intro marker, and the raw ISO timestamp.
+- **Implementation:** `meridian-pub` derives the concise label from the pool's structured country/protocol fields (with a remark-shape fallback for older pools) and leaves every URI byte-for-byte unchanged, so served still equals tested. The full client-side remark format is untouched. Rich format, the 5-config cap, the no-rescue-in-post rule, and the public-comms rule (no VIP, bot, :33 timing, or mechanics in the post) are unchanged. The local composer's `post.html` mirror was aligned to the same format.
+- **Tests:** pub render tests 15/15 green (approved heading, clean intro, concise labels, no timestamp/checkmark clutter, cap, stale-rescue omission, footer-last); local compose tests 39/39; pipeline suite 150/150.
+- **Deploy/live proof:** Worker deployment follows this merge; the next hourly :33 Tehran post is the live proof and is recorded in the project notes.
+
+Agent: Rick
+
 ## 2026-11-25 — Thin-pool root cause fixed (composition logic) + retry window widened
 
 - **Thin public pools — ROOT CAUSE FOUND AND FIXED (local `build/compose.py`, no gate touched):** the Nov 24 20:25 tick served 2 of 5 despite 172 qualifying — a composition-logic edge, not a supply dip and not an eligibility bug. `select()` capped only the global-majority country (US, via maj_cap); the non-majority phase had NO per-country cap (`apply_quotas` called with per_country 10**9), so NL took 4 of 5 slots and the delete-only safety net `enforce_country_ceiling()` trimmed 3 good configs away instead of replacing them. Same signature recurred Nov 21 05:27 (served 1, dropped 4) and Nov 23 21:55 (served 2, dropped 3). **Fix:** every country is now capped at floor(cap/2) inside `select()`'s constructive phase (same rule as `fill_to_floor`); single-country supply waives the cap (ceiling unsatisfiable — standing philosophy). `select()` + `port_order()` lifted from `main()` closures to module level so the real function is directly testable (`rank_items` already was). **Proof on the real data:** replaying the exact Nov 24 20:25 run set (5 runs, 180 eligible) through the fixed `select()` serves 5, dropped 0 — {DE:2, NL:2, PL:1} under the VIP-disjoint variant. The Nov 25 04:25 tick (served 4, dropped 0 — volatile_cap=1 + per_protocol=3 quota exhaustion on ample supply) is unchanged, as designed: those quotas are diversity caps, not a defect. Tests: 2 new (Nov-24 shape regression + single-country waiver), compose suite 38/38.
