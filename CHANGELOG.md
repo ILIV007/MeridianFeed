@@ -1,3 +1,12 @@
+## 2026-11-25 — R6.2 first-verdicts path: /check surfaced in /vip (bot-internal only)
+
+- **Problem:** the browser checker page shipped 2026-11-24 (PR #35) but `checker_verdicts` in KV stayed empty — the key did not even exist (~37 h after ship). The /check entry point lived only in /help and the bare /check command, which VIP users rarely open.
+- **Why it can only ever be wolf:** `vip_users` in KV does not exist either — VIP is the two admin accounts only (`ADMIN_IDS` 126679582, 232514880, wolf's own accounts). No channel promotion is possible under wolf's public-comms rule, so the only lawful surface is the bot's own /vip flow, which is exactly where VIP users already go.
+- **Ship:** `sendVip` now carries one line — "Browser check: /check — test this hour's VIP set from your own network in your browser." The intro text is extracted into a pure `vipIntroText(secret)` (no behaviour change to the links or the feedback list). Tests: 3 new assertions, bot checker suite 25/25 green. Bot redeployed after merge; /check route re-verified live (no token → 403, bad token → 403, /health ok).
+- **What this does NOT do:** composer consumption of checker_verdicts is still OFF and stays off until real verdicts exist and prove reliable — the ❌/✅ feedback store remains the only quarantine path. First verdicts now await wolf's next field test (run /vip, tap /check, open the link in his browser in Iran).
+
+Agent: Rick
+
 ## 2026-11-25 — Governance auto-retire persistence (wolf-delegated decision)
 
 - **The guard can now fire (root cause, found in the 2026-11-25 debug review):** `pipeline/governance.py` (ZERO_ROUNDS=6) was dead code in practice — the verifier only *read* disabled names from the committed `governance_state.json` and nothing ever called `update()`/`apply_disables()` in the verify path, so every run reloaded the frozen seed and 6 zero samples could never accumulate. (The collector CLI has the full update path, but it never runs in CI and saves into an ephemeral checkout.)
