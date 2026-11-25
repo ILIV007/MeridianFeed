@@ -1,5 +1,14 @@
 ## 2026-11-25 — Checkup repo fixes: port race, pool-date guard, bot KV batching, Gate-IR mute skip (Agent: Rick)
 
+## Composer independence cutover attempt + rollback — 2026-11-25 (Agent: Rick)
+
+- Manual live compose run 45601223656 succeeded: KV written (public 5, VIP 8), both sub routes 200 byte-identical, wrong secret 404.
+- COMPOSER_LIVE set true and local `meridian-compose-hourly` cron disabled at 12:05Z.
+- The scheduled compose runs at 12:45Z and 13:45Z never fired (GitHub schedule miss; workflow state active, verify schedule fired normally). The 13:03Z post landed from the last-known-good pool; the 14:03Z post was correctly skipped by the 90-minute staleness guard.
+- Rolled back 14:12Z: COMPOSER_LIVE=false, local cron re-enabled (next tick 18:15 Tehran). Last-known-good kept serving throughout; no gates lowered.
+- Next step: investigate the compose schedule trigger (GitHub schedule reliability) before re-attempting cutover; manual live mode is proven.
+
+
 - **Verifier port race fixed:** `free_port()` now registers each handed-out port in a locked reservation set until `release_port()` runs in the tunnel/control `finally` paths, so two threads can never receive the same port while the first sing-box/xray process is still binding.
 - **`meridian-pub` fails closed on bad pool dates:** malformed JSON, an unparseable `generated_at`, or a future-dated pool now returns `bad_pool`/`future_pool` instead of letting a NaN age compare as fresh; the 90-minute staleness guard is unchanged.
 - **`meridian-bot` feedback batched:** "All worked" records every config in one KV read-modify-write (`recordFeedbackBatch`) instead of one per config; an empty checker submission no longer writes `checker_verdicts`; remarks on the browser checker page are HTML-escaped.
