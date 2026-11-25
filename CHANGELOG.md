@@ -1,3 +1,12 @@
+## 2026-11-25 — Composer independence migration prepared (GitHub Actions)
+
+- **Why (wolf's rule: systems run themselves):** verification already runs on GitHub Actions and publishing/serving on Cloudflare, but the hourly composer still ran from an operator-machine cron. This change gives the composer a repo home so the loop can become GitHub Actions (verify + compose) -> Cloudflare KV -> Workers, with no operator runtime in the loop.
+- **Added:** `pipeline/composer/compose.py` (strict composer, selection logic unchanged; paths moved to runner state), `pipeline/composer/run_compose.py` (artifact download with the built-in GITHUB_TOKEN, KV snapshot/write via the Cloudflare API, dispatch-and-exit staleness behaviour preserved), `pipeline/composer/test_compose.py`, `.github/workflows/compose.yml` (schedule `45 * * * *` UTC = :15 Tehran; manual dry-run/live dispatch), and `docs/composer-independence.md`.
+- **Safety:** scheduled runs are dry-run shadow until the `COMPOSER_LIVE` repo variable is `true`; live mode fails closed with no KV writes when `CF_KV_API_TOKEN` / `CF_ACCOUNT_ID` / `CF_KV_NAMESPACE_ID` are absent or KV reads fail; empty fresh pools never overwrite last-known-good. State persistence: verify artifacts per run, KV snapshots for feedback/previous pools, Actions cache only as a uri/source accelerator, summary/log artifacts carry counts only.
+- **Not changed:** gates, field-profile/VIP rules, post timing/format, Workers, and the former local cron (kept as fallback until the documented cutover completes).
+
+Agent: Rick
+
 ## 2026-11-25 — README and repository metadata cleanup (Agent: Rick)
 
 - Refreshed the public README in English to match the live system: MeridianFeed is presented as the V2Ray complement to the main PROXIV3 MTProto bot/system, with prominent links to the @PROXIV3 channel and the ILIV007/Proxiv3 repository.
