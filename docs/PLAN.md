@@ -300,3 +300,9 @@ Agent: Rick
 - **Gate-IR steady state:** IR true 0–2 / false 0 / null 10–18 per compose; Tier-1 fed 1–2 via field-verified keys. Atlas closed; no new unlock expected.
 
 Agent: Rick
+
+## 08:00 UTC STATS-FILES MYSTERY — RESOLVED 2026-11-25 (Agent: Rick)
+
+- stats-45557610730.json (08:00:02 UTC) and stats-45568307125.json (07:59:59 UTC) were fresh downloads by the close-out Phase 1 worker (verified-corpus review) via `fetch_stats_cached` — its evidence file says so in Method, and it was written 08:08:47 UTC, right after. The failed 11:25 tick (single cron attempt, 07:55:13–07:58:09 UTC, no retry policy) wrote nothing; no compose ran after 10:25. Benign, no rogue process — but it left no trace, so every stats resolution is now logged to `build/stats_downloads.log` (ts, run id, fresh/cached, bytes, caller argv), fail-open so logging can never break a download.
+
+Agent: Rick
