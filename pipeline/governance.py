@@ -23,6 +23,17 @@ treats every governance error as "no governance". Re-enabling is a
 deliberate act (enable()), recorded like disables in the state file
 and surfaced in docs/survival-log.md by the weekly audit.
 
+Persistence (2026-11-25): the repo file next to the registry is a
+FROZEN SEED — it is never written by a run. The live state
+round-trips through Actions artifacts: each verify run restores the
+newest `governance-state-*` artifact
+(pipeline/fetch_governance_state.py), record_yield() appends that
+cycle's yields and applies disables, and the workflow uploads the
+updated state as the next run's artifact. The seed is the fallback
+when no artifact exists yet (first run after this lands). Runs are
+serialised by the verify workflow's concurrency group, so two runs
+can never race on the chain.
+
 State shape:
   {"version": 1,
    "sources": {name: {"unique_history": [int, ...],   # newest last
@@ -140,3 +151,52 @@ def enable(state, name):
         ent["disabled_ts"] = None
         return True
     return False
+
+
+def record_yield(state_path, seed_path, per_source_stats,
+                 registry_path, ts):
+    """One cycle's governance round-trip (2026-11-25 — the state
+    round-trips through Actions artifacts, see
+    pipeline/fetch_governance_state.py).
+
+    Loads the working state from `state_path` when it exists (the
+    previous run's artifact, restored by the workflow); otherwise
+    the repo seed at `seed_path`; otherwise an empty state. Appends
+    this cycle's yields, applies auto-disables against the registry,
+    and saves the updated state back to `state_path`.
+
+    Returns (state, newly_disabled, loaded_from) with loaded_from in
+    {"artifact", "seed", "empty"}. Never raises: on any error the
+    caller gets a usable (possibly empty) state and no disables —
+    governance must never break a run. The registry is re-read here
+    so apply_disables judges against the live registry, not a stale
+    copy."""
+    state = empty_state()
+    loaded_from = "empty"
+    try:
+        if state_path and os.path.exists(state_path):
+            state = load(state_path)
+            loaded_from = "artifact"
+        elif seed_path and os.path.exists(seed_path):
+            state = load(seed_path)
+            loaded_from = "seed"
+    except Exception:
+        state, loaded_from = empty_state(), "empty"
+    newly = {}
+    try:
+        update(state, per_source_stats, ts)
+        registry_sources = []
+        try:
+            with open(registry_path, encoding="utf-8") as handle:
+                registry_sources = json.load(handle).get("sources", [])
+        except Exception:
+            registry_sources = []
+        newly = apply_disables(state, registry_sources)
+    except Exception:
+        newly = {}
+    try:
+        if state_path:
+            save(state_path, state)
+    except Exception:
+        pass
+    return state, newly, loaded_from
