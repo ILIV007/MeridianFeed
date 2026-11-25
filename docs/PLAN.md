@@ -316,3 +316,7 @@ Agent: Rick
 - Tests: pub render 15/15; local compose mirror 39/39; pipeline 150/150. Worker deployment follows the merge; the next :33 Tehran post is the live proof.
 
 Agent: Rick
+
+## Composer phase :15 Tehran — 2026-11-25 (Agent: Rick)
+
+The hourly composer tick moved from :25 to :15 Tehran. On 2026-11-25 the 13:25 compose finished at 13:33:57 Tehran, 57 s after the publisher cron, so the 13:33 post was skipped by the 90-min staleness guard (pool then 185 min old after the 12:25 dispatch-and-exit tick). The :15 phase gives the compose ~18 min before the :33 post. Verification gates and pool rules unchanged.
