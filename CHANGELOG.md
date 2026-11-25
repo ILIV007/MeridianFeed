@@ -1,3 +1,11 @@
+## 2026-11-25 — Compose trigger moved to Cloudflare (Agent: Rick)
+
+- Wolf's correction: triggers belong to Cloudflare; GitHub use stays minimal (heavy verify/compose execution only). The GitHub `schedule` on `compose.yml` is removed.
+- `meridian-pub` gains a `45 * * * *` UTC cron (= :15 Tehran) that dispatches the compose workflow; the :33 Tehran post cron is unchanged. Dispatch requires the `TICK_TOKEN` Worker secret (repo-scoped, Actions write only) and fails closed without it, recording `tick_status` in KV. KV `tick_mode` selects dry-run/live.
+- Local fallback cron stays enabled until two Cloudflare-triggered cycles are proven.
+
+Agent: Rick
+
 ## 2026-11-25 — Checkup repo fixes: port race, pool-date guard, bot KV batching, Gate-IR mute skip (Agent: Rick)
 
 ## Composer independence cutover attempt + rollback — 2026-11-25 (Agent: Rick)

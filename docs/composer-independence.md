@@ -6,7 +6,7 @@ Workers; this migration moves the last operator-machine piece — the
 hourly composer — into GitHub Actions so the loop is:
 
 ```text
-GitHub Actions verify -> GitHub Actions compose -> Cloudflare KV -> Workers
+Cloudflare cron tick -> GitHub Actions compose (heavy work only) -> Cloudflare KV -> Workers
 ```
 
 No operator runtime is in the loop after cutover. The former local
@@ -15,9 +15,15 @@ is complete.
 
 ## What runs where
 
-- `.github/workflows/compose.yml` — schedule `45 * * * *` UTC
-  (= :15 Tehran, ahead of the :33 Tehran post), plus manual
-  `workflow_dispatch` with a dry-run/live mode choice.
+- `.github/workflows/compose.yml` — `workflow_dispatch` only
+  (dry-run/live mode choice). The clock is Cloudflare's:
+  `meridian-pub`'s `45 * * * *` UTC cron (= :15 Tehran, ahead of
+  the :33 Tehran post) dispatches it. GitHub scheduling is not
+  used (wolf's rule: Cloudflare owns triggers; GitHub use is kept
+  to the heavy verify/compose execution only). The tick needs the
+  `TICK_TOKEN` Worker secret (repo-scoped, Actions write only);
+  without it the tick fails closed and records `tick_status` in KV.
+  KV `tick_mode` selects dry-run (default) or live dispatch.
 - `pipeline/composer/run_compose.py` — downloads the newest verify
   stats + URI-map artifacts with the built-in `GITHUB_TOKEN`,
   snapshots KV `feedback` / `vip_index` / `public_pool`, runs the
