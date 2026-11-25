@@ -71,13 +71,29 @@ URL_TRACE = "https://www.cloudflare.com/cdn-cgi/trace"
 URL_SPEED = "https://speed.cloudflare.com/__down?bytes=%d" % SPEED_BYTES
 
 _port_lock = threading.Lock()
+_reserved_ports = set()
 
 
 def free_port():
+    """Reserve a loopback port for one tunnel/control process.
+
+    The probe socket closes before sing-box/xray binds, so the port
+    is registered in _reserved_ports until release_port() runs —
+    two threads can never be handed the same port while the first
+    process is still starting (the close-then-bind race)."""
     with _port_lock:
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", 0))
-            return sock.getsockname()[1]
+        while True:
+            with socket.socket() as sock:
+                sock.bind(("127.0.0.1", 0))
+                port = sock.getsockname()[1]
+            if port not in _reserved_ports:
+                _reserved_ports.add(port)
+                return port
+
+
+def release_port(port):
+    with _port_lock:
+        _reserved_ports.discard(port)
 
 
 def pass_key(record):
@@ -243,8 +259,9 @@ def stratified_sample(per_source, limit):
     profile_lists, other_lists = [], []
     n_profile = n_other = 0
     for entries in per_source:
-        prof = [e for e in entries if is_profile_candidate(*e)]
-        oth = [e for e in entries if not is_profile_candidate(*e)]
+        prof, oth = [], []
+        for entry in entries:
+            (prof if is_profile_candidate(*entry) else oth).append(entry)
         profile_lists.append(prof)
         other_lists.append(oth)
         n_profile += len(prof)
@@ -639,6 +656,7 @@ def run_tunnel(outbound, sing_box, direct_ip, urls=None):
                 proc.wait(timeout=5)
             except Exception:
                 proc.kill()
+            release_port(port)
 
 
 def run_controls(sing_box, direct_ip):
@@ -680,6 +698,7 @@ def run_controls(sing_box, direct_ip):
                 server.wait(timeout=5)
             except Exception:
                 server.kill()
+            release_port(server_port)
             origin.shutdown()
     dead = {"type": "vless", "tag": "proxy", "server": "203.0.113.99",
             "server_port": 443, "uuid": str(uuidlib.uuid4()),
@@ -847,6 +866,7 @@ def run_xray_tunnel(outbound, xray, direct_ip, urls=None, stderr_path=None):
                 proc.wait(timeout=5)
             except Exception:
                 proc.kill()
+            release_port(port)
 
 
 def _wait_port(port, timeout=10.0):
@@ -950,6 +970,7 @@ def run_xray_controls(xray, direct_ip):
                 server.wait(timeout=5)
             except Exception:
                 server.kill()
+            release_port(server_port)
             origin.shutdown()
     dead = {"protocol": "vless", "tag": "proxy",
             "settings": {"vnext": [

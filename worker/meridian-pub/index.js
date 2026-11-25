@@ -76,11 +76,18 @@ function buildRemovalNote(removed) {
 async function postBatch(env) {
   const raw = await env.MERIDIAN_STORE.get("public_pool");
   if (!raw) return { posted: false, reason: "no_pool" };
-  const pool = JSON.parse(raw);
-  if (!pool.configs || !pool.configs.length) return { posted: false, reason: "empty_pool" };
-  if (Date.now() - Date.parse(pool.generated_at) > MAX_STALE_MS) {
-    return { posted: false, reason: "stale_pool" };
+  let pool;
+  try { pool = JSON.parse(raw); } catch (e) { return { posted: false, reason: "bad_pool" }; }
+  if (!pool || typeof pool !== "object" || !pool.configs || !pool.configs.length) {
+    return { posted: false, reason: "empty_pool" };
   }
+  // Fail closed on an unparseable or future generated_at: a NaN age
+  // must never compare as "fresh" and post a pool of unknown age.
+  const generatedMs = Date.parse(pool.generated_at);
+  const ageMs = Date.now() - generatedMs;
+  if (!Number.isFinite(generatedMs)) return { posted: false, reason: "bad_pool" };
+  if (ageMs < 0) return { posted: false, reason: "future_pool" };
+  if (ageMs > MAX_STALE_MS) return { posted: false, reason: "stale_pool" };
   // Rescue-post rule (wolf, 2026-11-20): a deleted rescue config
   // is announced by reply in the same chat, not in the post. The
   // announcement replies to the previous post (KV last_post) and

@@ -59,14 +59,22 @@ async function loadIndex(env) {
 }
 
 async function recordFeedback(env, key, kind) {
+  await recordFeedbackBatch(env, [key], kind);
+}
+
+async function recordFeedbackBatch(env, keys, kind) {
+  // One read-modify-write for the whole batch ("All worked" used to
+  // pay one KV read + write per config and could interleave).
   let fb = {};
   try { fb = JSON.parse(await env.MERIDIAN_STORE.get("feedback") || "{}"); } catch (e) {}
   if (typeof fb !== "object" || Array.isArray(fb)) fb = {};
   const now = Math.floor(Date.now() / 1000);
-  const e = fb[key] || { works: 0, dead: 0 };
-  if (kind === "works") { e.works += 1; e.works_ts = now; }
-  else { e.dead += 1; e.dead_ts = now; }
-  fb[key] = e;
+  for (const key of keys) {
+    const e = fb[key] || { works: 0, dead: 0 };
+    if (kind === "works") { e.works += 1; e.works_ts = now; }
+    else { e.dead += 1; e.dead_ts = now; }
+    fb[key] = e;
+  }
   await env.MERIDIAN_STORE.put("feedback", JSON.stringify(fb));
 }
 
@@ -151,13 +159,18 @@ function mergeVerdicts(existing, results, now) {
   return out;
 }
 
+function escHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 function buildCheckPage(probes, token) {
   // probes: [{n, key, remark, url|null}]. The probe list is built
   // server-side from the current VIP sub only — never from user
   // input — so the page can only probe what we already serve.
   const data = JSON.stringify({ probes, token }).replace(/</g, "\\u003c");
   const rows = probes.map(p =>
-    "<li id=\"r" + p.n + "\">" + p.n + ". " + p.remark +
+    "<li id=\"r" + p.n + "\">" + p.n + ". " + escHtml(p.remark) +
     (p.url ? " — <span>pending…</span>" : " — <span>not checkable from a browser</span>") +
     "</li>").join("");
   return "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">" +
@@ -207,6 +220,7 @@ async function handleCheckPage(request, env) {
       typeof r.ok === "boolean" &&
       typeof r.ms === "number" && r.ms >= 0 && r.ms <= 60000)
       .slice(0, 64);
+    if (!clean.length) return Response.json({ ok: true, recorded: 0 });
     let existing = {};
     try { existing = JSON.parse(await env.MERIDIAN_STORE.get("checker_verdicts") || "{}"); } catch (e) {}
     const merged = mergeVerdicts(existing, clean, Math.floor(Date.now() / 1000));
@@ -280,7 +294,7 @@ async function handleCallback(cb, env) {
     return;
   }
   if (parts[0] === "w" && parts[2] === "all") {
-    for (const it of index.items) await recordFeedback(env, it.key, "works");
+    await recordFeedbackBatch(env, index.items.map(it => it.key), "works");
     await answer("✅ Noted — all marked working. Thank you!");
     return;
   }

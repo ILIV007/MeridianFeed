@@ -1,3 +1,15 @@
+## 2026-11-25 — Checkup repo fixes: port race, pool-date guard, bot KV batching, Gate-IR mute skip (Agent: Rick)
+
+- **Verifier port race fixed:** `free_port()` now registers each handed-out port in a locked reservation set until `release_port()` runs in the tunnel/control `finally` paths, so two threads can never receive the same port while the first sing-box/xray process is still binding.
+- **`meridian-pub` fails closed on bad pool dates:** malformed JSON, an unparseable `generated_at`, or a future-dated pool now returns `bad_pool`/`future_pool` instead of letting a NaN age compare as fresh; the 90-minute staleness guard is unchanged.
+- **`meridian-bot` feedback batched:** "All worked" records every config in one KV read-modify-write (`recordFeedbackBatch`) instead of one per config; an empty checker submission no longer writes `checker_verdicts`; remarks on the browser checker page are HTML-escaped.
+- **Gate-IR mute skip:** when the controls pass only via the Globalping fallback (check-host produced no verdict at all), the endpoint stage skips check-host instead of burning up to ~30 s per endpoint on a mute source. Globalping alone can still prove reachable but never condemn — verdict discipline unchanged.
+- **Collector/stratified tidies:** the snapshot read uses a context manager and snapshots are stored only when the response carries ETag/Last-Modified validators; `stratified_sample` classifies each entry once.
+- **CI:** new `pr-checks` workflow runs the pipeline unit tests and Worker syntax checks on every pull request.
+- No gates, floors, pool rules, timing, or post format changed. Workers `meridian-pub` and `meridian-bot` redeployed after merge.
+
+Agent: Rick
+
 ## 2026-11-25 — Composer independence migration prepared (GitHub Actions)
 
 - **Why (wolf's rule: systems run themselves):** verification already runs on GitHub Actions and publishing/serving on Cloudflare, but the hourly composer still ran from an operator-machine cron. This change gives the composer a repo home so the loop can become GitHub Actions (verify + compose) -> Cloudflare KV -> Workers, with no operator runtime in the loop.

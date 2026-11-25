@@ -546,7 +546,8 @@ def fetch(url):
     snap = None
     if snap_path and os.path.exists(snap_path):
         try:
-            snap = json.load(open(snap_path, encoding="utf-8"))
+            with open(snap_path, encoding="utf-8") as handle:
+                snap = json.load(handle)
         except Exception:
             snap = None
     if snap:
@@ -564,7 +565,9 @@ def fetch(url):
         if exc.code == 304 and snap:
             return base64.b64decode(snap["body_b64"])
         raise
-    if snap_path:
+    # A snapshot without validators can never revalidate (no 304
+    # path), so storing it only wastes cache space.
+    if snap_path and (etag or last_modified):
         try:
             os.makedirs(os.path.dirname(snap_path), exist_ok=True)
             with open(snap_path, "w", encoding="utf-8") as handle:
