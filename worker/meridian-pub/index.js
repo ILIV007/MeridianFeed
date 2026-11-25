@@ -10,6 +10,12 @@
 // to the previous post (a plain message, remarks only) before the
 // new batch goes out.
 // fetch(): health only. Posting uses the TELEGRAM_TOKEN Worker secret.
+// Trigger rule (wolf, 2026-11-25): Cloudflare owns the clock. The
+// :15 Tehran tick (45 UTC) dispatches the compose workflow; GitHub
+// only executes the heavy compose/verify work and is never relied
+// on for scheduling. Dispatch needs the TICK_TOKEN Worker secret
+// (a repo-scoped token with Actions write only); without it the
+// tick fails closed and records tick_status in KV.
 const CHANNEL = "@Proxiv3";
 const MAX_STALE_MS = 90 * 60 * 1000;
 // Wolf's rule (2026-11-20): a channel post carries at most 5 configs —
@@ -76,18 +82,11 @@ function buildRemovalNote(removed) {
 async function postBatch(env) {
   const raw = await env.MERIDIAN_STORE.get("public_pool");
   if (!raw) return { posted: false, reason: "no_pool" };
-  let pool;
-  try { pool = JSON.parse(raw); } catch (e) { return { posted: false, reason: "bad_pool" }; }
-  if (!pool || typeof pool !== "object" || !pool.configs || !pool.configs.length) {
-    return { posted: false, reason: "empty_pool" };
+  const pool = JSON.parse(raw);
+  if (!pool.configs || !pool.configs.length) return { posted: false, reason: "empty_pool" };
+  if (Date.now() - Date.parse(pool.generated_at) > MAX_STALE_MS) {
+    return { posted: false, reason: "stale_pool" };
   }
-  // Fail closed on an unparseable or future generated_at: a NaN age
-  // must never compare as "fresh" and post a pool of unknown age.
-  const generatedMs = Date.parse(pool.generated_at);
-  const ageMs = Date.now() - generatedMs;
-  if (!Number.isFinite(generatedMs)) return { posted: false, reason: "bad_pool" };
-  if (ageMs < 0) return { posted: false, reason: "future_pool" };
-  if (ageMs > MAX_STALE_MS) return { posted: false, reason: "stale_pool" };
   // Rescue-post rule (wolf, 2026-11-20): a deleted rescue config
   // is announced by reply in the same chat, not in the post. The
   // announcement replies to the previous post (KV last_post) and
@@ -123,9 +122,36 @@ async function postBatch(env) {
   return { posted: false, reason: "telegram_error", detail: data && data.description };
 }
 
+async function dispatchCompose(env) {
+  const at = new Date().toISOString();
+  if (!env.TICK_TOKEN) {
+    await env.MERIDIAN_STORE.put("tick_status", JSON.stringify(
+      { at, ok: false, reason: "no_token" }));
+    return { dispatched: false, reason: "no_token" };
+  }
+  const mode = (await env.MERIDIAN_STORE.get("tick_mode")) === "live"
+    ? "live" : "dry-run";
+  const resp = await fetch(
+    "https://api.github.com/repos/ILIV007/MeridianFeed/actions/workflows/compose.yml/dispatches",
+    { method: "POST",
+      headers: { "authorization": "Bearer " + env.TICK_TOKEN,
+                 "accept": "application/vnd.github+json",
+                 "content-type": "application/json",
+                 "user-agent": "meridian-pub" },
+      body: JSON.stringify({ ref: "main", inputs: { mode } }) });
+  const ok = resp.status === 204;
+  await env.MERIDIAN_STORE.put("tick_status", JSON.stringify(
+    { at, ok, mode, status: resp.status }));
+  return { dispatched: ok, mode, status: resp.status };
+}
+
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(postBatch(env));
+    if (event.cron === "45 * * * *") {
+      ctx.waitUntil(dispatchCompose(env));
+    } else {
+      ctx.waitUntil(postBatch(env));
+    }
   },
   async fetch(request, env) {
     const url = new URL(request.url);
