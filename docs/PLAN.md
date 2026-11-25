@@ -290,3 +290,13 @@ Agent: Rick
 - Local hygiene: refresh_repo.py TRACKED was missing 10 post-R5 files (incl. fetch_governance_state.py + tests); fixed, full suite 150/150 green.
 
 Agent: Rick
+
+
+## THIN-POOL FIX + RETRY WINDOW — 2026-11-25 (Agent: Rick)
+
+- **Thin-pool root cause (Nov 24 20:25: served 2 of 172 qualifying):** composition-logic edge, not supply. `select()` capped only the global-majority country; the non-majority phase had no per-country cap, so NL took 4 of 5 slots and the delete-only safety net trimmed 3 away. Same signature Nov 21 (served 1, dropped 4) and Nov 23 (served 2, dropped 3). **Fix (local `build/compose.py`):** every country capped at floor(cap/2) in the constructive phase (same rule as `fill_to_floor`); single-country supply waives it. `select()` + `port_order()` lifted to module level for direct testing. **Proof:** the exact Nov 24 run set replayed through the fixed `select()` serves 5, dropped 0. The 04:25 served-4 case (volatile + per-protocol quota exhaustion) is unchanged by design. Tests: compose 38/38.
+- **Retry window (local `build/get_stats.py`):** the 11:25 Tehran tick exhausted the 5-attempt / ~110 s window while the artifact endpoint stayed dead, recovering ~2 min later. Backoff now 5s/15s/30s/60s/120s (6 attempts, ~230 s). Tests: get_stats 8/8.
+- **Autonomy streak: 1** (10:25 Tehran tick only; 11:25 failed as above; no manual recovery after 10:25 — next proof point 12:25). The 11:33 post was expected to serve from last-known-good under the 90-min guard.
+- **Gate-IR steady state:** IR true 0–2 / false 0 / null 10–18 per compose; Tier-1 fed 1–2 via field-verified keys. Atlas closed; no new unlock expected.
+
+Agent: Rick
