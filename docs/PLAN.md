@@ -306,3 +306,13 @@ Agent: Rick
 - stats-45557610730.json (08:00:02 UTC) and stats-45568307125.json (07:59:59 UTC) were fresh downloads by the close-out Phase 1 worker (verified-corpus review) via `fetch_stats_cached` — its evidence file says so in Method, and it was written 08:08:47 UTC, right after. The failed 11:25 tick (single cron attempt, 07:55:13–07:58:09 UTC, no retry policy) wrote nothing; no compose ran after 10:25. Benign, no rogue process — but it left no trace, so every stats resolution is now logged to `build/stats_downloads.log` (ts, run id, fresh/cached, bytes, caller argv), fail-open so logging can never break a download.
 
 Agent: Rick
+
+
+## CLEAN HOURLY POST FORMAT — 2026-11-25 (Agent: Rick)
+
+- Wolf found the hourly channel post cluttered and emoji-spammed and required a private sample before any live change. The sample was rendered from the live public pool; wolf approved it on 2026-11-25 ~12:09 Tehran with one tweak: put the main 🪼 at the start of the message text too.
+- Final format: heading `🪼 Verified V2Ray Configs`; intro `5 configs, verified end-to-end.`; labels are flag + country + protocol only; footer remains the bold blockquote `🪼 @PROXIV3` as the final element. The repeated brand/Verified label text, ✅ marker, and raw timestamp are gone.
+- Invariants unchanged: Rich Messages, at most 5 configs, URIs byte-for-byte unchanged (served = tested), client-side remarks untouched, no rescue configs in the post, and no VIP/bot/:33/mechanics mentions.
+- Tests: pub render 15/15; local compose mirror 39/39; pipeline 150/150. Worker deployment follows the merge; the next :33 Tehran post is the live proof.
+
+Agent: Rick
