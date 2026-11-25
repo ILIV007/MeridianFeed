@@ -272,3 +272,12 @@ Agent: Rick
 - **Field feedback remains the primary Iran ground truth** (wolf's own tests + bot works/dead reports), ahead of any API vantage.
 
 Agent: Rick
+
+
+## R6.2 FIRST VERDICTS — 2026-11-25 (Agent: Rick) — /check surfaced in /vip
+
+- `checker_verdicts` stayed empty ~37 h after the checker page shipped (KV key not even created — the bot only writes it on the first POSTed verdict). /check lived only in /help and the bare command.
+- VIP is the two admin accounts only (KV `vip_users` does not exist; `ADMIN_IDS` is wolf's main + @BLUE_WOLF_03), so the first verdicts can only come from wolf himself. No channel promotion is allowed (public-comms rule), so the ship is one line in the /vip delivery: "Browser check: /check — test this hour's VIP set from your own network in your browser." (`vipIntroText(secret)` extracted pure; tests 25/25.)
+- Composer consumption of checker_verdicts stays OFF until real verdicts exist and prove reliable; ❌/✅ feedback remains the only quarantine path.
+
+Agent: Rick

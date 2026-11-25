@@ -228,6 +228,15 @@ async function handleCheckPage(request, env) {
     { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
+function vipIntroText(secret) {
+  return "\u{1FABC} PROXIV3 VIP\n\nYour subscription links (keep them private):\n" +
+    "Primary: " + SUB_BASE + secret + "\n" +
+    "Backup (mirror route, same subscription): " + SUB2_BASE + secret + "\n\n" +
+    "Import either one into your v2ray client or panel — the configs refresh automatically every hour.\n\n" +
+    "Browser check: /check — test this hour's VIP set from your own network in your browser.\n\n" +
+    "Self-check: Network Checker (github.com/mirarr-app/network-checker) finds clean IPs from your own ISP — note: its desktop Xray download has no checksum check and its IP lookup uses plain HTTP.";
+}
+
 async function sendVip(send, env, uid, chat) {
   let kvVip = [];
   try { kvVip = JSON.parse(await env.MERIDIAN_STORE.get("vip_users") || "[]"); } catch (e) {}
@@ -237,11 +246,7 @@ async function sendVip(send, env, uid, chat) {
   }
   const secret = await env.MERIDIAN_STORE.get("sub_secret");
   if (!secret) { await send("VIP subscription is not ready yet — please try again shortly."); return; }
-  await send("\u{1FABC} PROXIV3 VIP\n\nYour subscription links (keep them private):\n" +
-    "Primary: " + SUB_BASE + secret + "\n" +
-    "Backup (mirror route, same subscription): " + SUB2_BASE + secret + "\n\n" +
-    "Import either one into your v2ray client or panel — the configs refresh automatically every hour.\n\n" +
-    "Self-check: Network Checker (github.com/mirarr-app/network-checker) finds clean IPs from your own ISP — note: its desktop Xray download has no checksum check and its IP lookup uses plain HTTP.");
+  await send(vipIntroText(secret));
   const index = await loadIndex(env);
   if (index && index.items && index.items.length) {
     const lines = index.items.map(i => i.n + ". " + i.remark).join("\n");
