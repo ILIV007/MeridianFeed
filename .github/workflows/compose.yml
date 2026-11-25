@@ -4,7 +4,8 @@ name: compose
 # not on any operator machine. Scheduled runs are dry-run shadow
 # until the COMPOSER_LIVE repo variable is "true"; live mode fails
 # closed (no KV writes) when the Cloudflare secret/vars are absent.
-# Cron 45 UTC = :15 Tehran, ahead of the :33 Tehran publisher post.
+# Trigger: Cloudflare cron (meridian-pub, 45 UTC = :15 Tehran)
+# dispatches this workflow. GitHub scheduling is not used.
 
 on:
   workflow_dispatch:
@@ -16,8 +17,6 @@ on:
           - dry-run
           - live
         default: dry-run
-  schedule:
-    - cron: "45 * * * *"
 
 permissions:
   contents: read
