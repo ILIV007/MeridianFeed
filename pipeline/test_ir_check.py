@@ -158,6 +158,21 @@ class AnnotateTests(unittest.TestCase):
         self.assertIs(verdicts["k2"], True)   # shared endpoint verdict
         self.assertIsNone(verdicts["k3"])     # unscripted -> neutral
 
+    def test_mute_check_host_is_skipped_per_endpoint(self):
+        # check-host returns no verdict at all: controls pass via the
+        # Globalping fallback, and the endpoint stage must not retry
+        # check-host (it would only burn the budget). A lone
+        # Globalping failure still cannot condemn.
+        ch = scripted(None, None, None, None)
+        gp = scripted(True, False, False)  # controls pair, then endpoint
+        targets = {"k1": ("203.0.113.7", 443)}
+        verdicts, stage, counts = ir_check.annotate(
+            targets, ch=ch, gp=gp)
+        self.assertEqual(stage, "ok")
+        self.assertTrue(counts["check_host_mute"])
+        self.assertEqual(len(ch.calls), 4)  # controls only
+        self.assertIsNone(verdicts["k1"])
+
     def test_empty_targets_ok(self):
         verdicts, stage, counts = ir_check.annotate(
             {}, ch=scripted(), gp=scripted())

@@ -414,10 +414,19 @@ def annotate(targets, budget_s=DEFAULT_BUDGET_S, workers=DEFAULT_WORKERS,
     for key, endpoint in targets.items():
         endpoints.setdefault(endpoint, []).append(key)
     counts["endpoints"] = len(endpoints)
+    # When the controls passed only via the Globalping fallback,
+    # check-host produced no verdict at all this run (mute from this
+    # egress) — retrying it per endpoint only burns the budget.
+    # Globalping alone can prove reachable but never condemn (a
+    # single failure stays neutral), so verdicts stay fail-safe.
+    check_host_mute = (controls is None
+                       and LAST_CONTROLS.get("via") == "globalping")
+    counts["check_host_mute"] = check_host_mute
+    ch_eff = _no_opinion if check_host_mute else ch
     deadline = time.monotonic() + budget_s
     try:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(endpoint_verdict, host, port, ch, gp, at):
+            futures = {pool.submit(endpoint_verdict, host, port, ch_eff, gp, at):
                        (host, port) for host, port in endpoints}
             for future, endpoint in futures.items():
                 remaining = deadline - time.monotonic()

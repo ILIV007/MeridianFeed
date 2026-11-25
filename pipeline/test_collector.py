@@ -190,6 +190,25 @@ class ConditionalFetchTest(unittest.TestCase):
                     self.assertEqual(collector.fetch(url), body)
                 self.assertEqual(seen_headers[1].get("If-none-match"), '"v1"')
 
+    def test_no_snapshot_without_validators(self):
+        # A response with neither ETag nor Last-Modified can never
+        # revalidate, so no snapshot is stored for it.
+        import os
+        import tempfile
+        import unittest.mock
+        url = "https://example.com/plain"
+        body = b"vless://example"
+        with tempfile.TemporaryDirectory() as cache_dir:
+            with unittest.mock.patch.dict(
+                    "os.environ",
+                    {"COLLECTOR_CACHE_DIR": cache_dir, "COLLECTOR_PACING": "0"}):
+                def plain(request, timeout=None):
+                    return self._response(body, {})
+
+                with unittest.mock.patch("urllib.request.urlopen", plain):
+                    self.assertEqual(collector.fetch(url), body)
+                self.assertEqual(os.listdir(cache_dir), [])
+
 
 def vmess_ws_tls(host, sni="front.example.com", uid=UUID):
     payload = {"v": "2", "ps": "fixture", "add": host, "port": "443",

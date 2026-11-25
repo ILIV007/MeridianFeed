@@ -1,0 +1,31 @@
+name: pr-checks
+
+# Pull-request gate: pipeline unit tests + Worker syntax checks.
+# Execution happens on GitHub runners only; nothing here publishes.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pipeline unit tests
+        run: python3 -m unittest pipeline.test_collector pipeline.test_governance pipeline.test_verifier pipeline.test_ir_check pipeline.test_endpoint_hunt pipeline.test_fetch_governance_state
+
+      - name: Worker syntax checks
+        run: |
+          for f in worker/*/index.js; do
+            echo "node --check $f"
+            node --check "$f"
+          done

@@ -319,6 +319,21 @@ class WaitPortTests(unittest.TestCase):
         self.assertFalse(verifier._wait_port(port, timeout=0.6))
 
 
+class FreePortTests(unittest.TestCase):
+    def test_reservations_are_distinct_until_released(self):
+        first = verifier.free_port()
+        second = verifier.free_port()
+        try:
+            self.assertNotEqual(first, second)
+            self.assertIn(first, verifier._reserved_ports)
+            self.assertIn(second, verifier._reserved_ports)
+        finally:
+            verifier.release_port(first)
+            verifier.release_port(second)
+        self.assertNotIn(first, verifier._reserved_ports)
+        self.assertNotIn(second, verifier._reserved_ports)
+
+
 class AbFinalmaskSmokeTests(unittest.TestCase):
     """ab_finalmask orchestration with every network/binary seam
     stubbed. Regression guard: run 44704432326 died on
