@@ -85,3 +85,16 @@ and `actions: write` (artifact download + verify dispatch).
 Rollback: set `COMPOSER_LIVE=false` (Actions returns to dry-run)
 and re-enable the local cron; KV last-known-good keeps serving
 throughout.
+
+## Cutover complete (2026-11-26)
+
+- The Cloudflare tick is live: `meridian-pub` dispatches compose at
+  :15 Tehran with KV `tick_mode` set to the raw value `live`
+  (a JSON-quoted value silently selects dry-run — write raw).
+- Two cycles proven, the second with the local cron already
+  disabled; the former local `meridian-compose-hourly` cron is
+  retired (disabled, kept only as a documented rollback lever).
+- Rollback remains: set KV `tick_mode` to `dry-run` (raw) and
+  re-enable the local cron; KV last-known-good keeps serving.
+
+Agent: Rick
