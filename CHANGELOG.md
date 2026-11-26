@@ -1,3 +1,12 @@
+## 2026-11-26 — Cloudflare trigger live; local fallback retired (Agent: Rick)
+
+- The Cloudflare tick on `meridian-pub` (cron `45 * * * *` UTC = :15 Tehran) now dispatches the compose workflow live: KV `tick_mode` is `live` and `tick_status` records `ok: true, mode: live, status: 204`.
+- Proven cycles: live dispatch at 23:45Z (compose run 45723715617, post msg 3666) and a Cloudflare-only cycle at 00:45Z (compose run 45730950860, pool generated 00:46:26Z, post msg 3675) with the local cron already disabled.
+- The local `meridian-compose-hourly` fallback cron is disabled. The loop is now Cloudflare (tick + post + serving) and GitHub Actions (verify + compose execution) only, with no operator runtime in the loop.
+- Fix recorded: KV `tick_mode` must be written as a raw value (`live`), not JSON-quoted; a quoted value silently selects dry-run in the Worker comparison.
+
+Agent: Rick
+
 ## 2026-11-25 — Compose trigger moved to Cloudflare (Agent: Rick)
 
 - Wolf's correction: triggers belong to Cloudflare; GitHub use stays minimal (heavy verify/compose execution only). The GitHub `schedule` on `compose.yml` is removed.
